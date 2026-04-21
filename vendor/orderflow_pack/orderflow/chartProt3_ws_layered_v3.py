@@ -204,7 +204,10 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     if bar_df.empty or not cfg.get('enabled', True):
         return []
     plot_cfg = cfg.get('plot', {})
-    work = bar_df.copy().reset_index().rename(columns={'index': 'ts'})
+    work = bar_df.copy().reset_index()
+    if 'ts' not in work.columns:
+        first_col = work.columns[0]
+        work = work.rename(columns={first_col: 'ts'})
     work['ts'] = pd.to_datetime(work['ts'], utc=True, errors='coerce')
     work = work.dropna(subset=['ts'])
 
@@ -223,18 +226,25 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     work['depth_bid_delta_norm'] = normalize_series(work['depth_bid_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
 
     price_range = max(float(work['high'].max() - work['low'].min()), 1.0)
-    y_offset = price_range * float(plot_cfg.get('y_offset_ratio', 0.012))
+    y_offset = price_range * float(plot_cfg.get('y_offset_ratio', 0.05))
     min_score = float(cfg.get('minimum_score', 1.75))
     medium_score = float(cfg.get('medium_score', 2.5))
     large_score = float(cfg.get('large_score', 3.6))
     min_ti_abs = float(cfg.get('minimum_trade_imbalance_notional', 0.0))
 
+    size_steps = max(1, int(plot_cfg.get('size_steps', 10)))
+    size_min = float(plot_cfg.get('size_min', plot_cfg.get('small_size', 80.0)))
+    size_max = float(plot_cfg.get('size_max', plot_cfg.get('large_size', 170.0)))
+
     def score_to_size(score: float) -> float:
-        if score >= large_score:
-            return float(plot_cfg.get('large_size', 170.0))
-        if score >= medium_score:
-            return float(plot_cfg.get('medium_size', 120.0))
-        return float(plot_cfg.get('small_size', 80.0))
+        if size_steps <= 1 or size_min == size_max:
+            return float(size_max)
+        low = min_score
+        high = max(large_score, min_score + 1e-9)
+        norm = (float(score) - low) / (high - low)
+        norm = max(0.0, min(1.0, norm))
+        step = int(round(norm * (size_steps - 1)))
+        return float(size_min + (size_max - size_min) * (step / (size_steps - 1)))
 
     markers = []
     for _, row in work.iterrows():
@@ -263,7 +273,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
                 'price': float(row['high']) + y_offset,
                 'size': score_to_size(buy_score),
                 'color': plot_cfg.get('buy_color', '#3b82f6'),
-                'symbol': plot_cfg.get('buy_marker', 'v')
+                'symbol': plot_cfg.get('buy_marker', 'o')
             })
         elif sell_trigger:
             markers.append({
@@ -271,7 +281,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
                 'price': float(row['low']) - y_offset,
                 'size': score_to_size(sell_score),
                 'color': plot_cfg.get('sell_color', '#ef4444'),
-                'symbol': plot_cfg.get('sell_marker', '^')
+                'symbol': plot_cfg.get('sell_marker', 'o')
             })
     if plot_cfg.get('keep_strongest_per_bar', True):
         tmp = {}
@@ -564,7 +574,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
     time_min_dt_plot, time_max_dt_plot = compute_plot_window(book_df, aggregated_trade_df, ohlc_data, cp.HOURS_TO_PLOT)
 
     with plt.style.context('dark_background'):
-        fig = plt.figure(figsize=(cp.FIG_WIDTH, cp.FIG_HEIGHT))
+        fig = plt.figure(figsize=(cp.FIG_WIDTH * 1.35, cp.FIG_HEIGHT))
         fig.patch.set_facecolor('#121212')
         gs_outer = gridspec.GridSpec(3, 1, height_ratios=[6.5, 0.001, 0.001], hspace=0.0, left=0.06, right=0.94, bottom=0.12, top=0.92)
         current_grid_ratios = cp.GRIDSPEC_WIDTH_RATIOS_WITH_BAR.copy()
@@ -603,8 +613,8 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
 
         main_handles, main_labels = ax_main_price.get_legend_handles_labels()
         if markers:
-            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('buy_marker', 'v'), color='none', label='Buy absorption', markerfacecolor=cfg['plot'].get('buy_color', '#3b82f6'), markeredgecolor='white', markersize=8))
-            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', '^'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
+            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('buy_marker', 'o'), color='none', label='Buy absorption', markerfacecolor=cfg['plot'].get('buy_color', '#3b82f6'), markeredgecolor='white', markersize=8))
+            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', 'o'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
             main_labels.extend(['Buy absorption', 'Sell absorption'])
         if main_handles:
             ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=cp.LEGEND_FONTSIZE, loc='upper left', bbox_to_anchor=(0.01, 0.99), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
