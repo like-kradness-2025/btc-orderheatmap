@@ -13,6 +13,14 @@ BTC の orderflow / heatmap 生成専用。
 - `artifacts/orderflow_chart.png` が主な出力
 - `logs/orderflow_once.log` / `logs/orderflow_loop.log` で運用確認する
 
+## V2 吸収マーカー版
+
+- `bin/run_orderflow_once_v2.sh` で v2 を 1 回生成してアップロードする
+- `vendor/orderflow_pack/run_plot_v2.sh` で v2 を直接実行できる
+- `vendor/orderflow_pack/orderflow/absorption_marker_config.json` で吸収判定しきい値やマーカーサイズを調整できる
+- `ABSORPTION_CONFIG_PATH` を指定すると別設定ファイルを使える
+- v2 は `live_features_1s.jsonl` を追加で参照して、吸収候補を ▲ / ▼ でオーバーレイする
+
 ## 互換用に残してあるもの
 
 - `bin/start_receiver.sh`
@@ -29,4 +37,8 @@ BTC の orderflow / heatmap 生成専用。
 
 ```bash
 ./bin/run_orderflow_once.sh
+```
+
+```bash
+./bin/run_orderflow_once_v2.sh
 ```
