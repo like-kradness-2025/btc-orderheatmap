@@ -28,10 +28,10 @@
     "marker_linewidth": 0.7,
     "small_size": 80.0,
     "medium_size": 120.0,
-    "large_size": 170.0,
-    "buy_marker": "v",
-    "sell_marker": "^",
-    "y_offset_ratio": 0.012,
+    "large_size": 340.0,
+    "buy_marker": "o",
+    "sell_marker": "o",
+    "y_offset_ratio": 0.06,
     "keep_strongest_per_bar": true,
     "min_bars_between_same_side": 0
   }

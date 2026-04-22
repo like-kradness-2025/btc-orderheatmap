@@ -121,10 +121,10 @@ def load_absorption_config(path: Path) -> dict:
             'marker_linewidth': 0.7,
             'small_size': 80.0,
             'medium_size': 120.0,
-            'large_size': 170.0,
-            'buy_marker': 'v',
-            'sell_marker': '^',
-            'y_offset_ratio': 0.012,
+            'large_size': 340.0,
+            'buy_marker': 'o',
+            'sell_marker': 'o',
+            'y_offset_ratio': 0.06,
             'keep_strongest_per_bar': True,
             'min_bars_between_same_side': 0,
         },
@@ -204,7 +204,10 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     if bar_df.empty or not cfg.get('enabled', True):
         return []
     plot_cfg = cfg.get('plot', {})
-    work = bar_df.copy().reset_index().rename(columns={'index': 'ts'})
+    work = bar_df.copy().reset_index()
+    if 'ts' not in work.columns:
+        first_col = work.columns[0]
+        work = work.rename(columns={first_col: 'ts'})
     work['ts'] = pd.to_datetime(work['ts'], utc=True, errors='coerce')
     work = work.dropna(subset=['ts'])
 
@@ -263,7 +266,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
                 'price': float(row['high']) + y_offset,
                 'size': score_to_size(buy_score),
                 'color': plot_cfg.get('buy_color', '#3b82f6'),
-                'symbol': plot_cfg.get('buy_marker', 'v')
+                'symbol': plot_cfg.get('buy_marker', 'o')
             })
         elif sell_trigger:
             markers.append({
@@ -271,7 +274,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
                 'price': float(row['low']) - y_offset,
                 'size': score_to_size(sell_score),
                 'color': plot_cfg.get('sell_color', '#ef4444'),
-                'symbol': plot_cfg.get('sell_marker', '^')
+                'symbol': plot_cfg.get('sell_marker', 'o')
             })
     if plot_cfg.get('keep_strongest_per_bar', True):
         tmp = {}
@@ -564,7 +567,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
     time_min_dt_plot, time_max_dt_plot = compute_plot_window(book_df, aggregated_trade_df, ohlc_data, cp.HOURS_TO_PLOT)
 
     with plt.style.context('dark_background'):
-        fig = plt.figure(figsize=(cp.FIG_WIDTH, cp.FIG_HEIGHT))
+        fig = plt.figure(figsize=(cp.FIG_WIDTH * 1.5, cp.FIG_HEIGHT))
         fig.patch.set_facecolor('#121212')
         gs_outer = gridspec.GridSpec(3, 1, height_ratios=[6.5, 0.001, 0.001], hspace=0.0, left=0.06, right=0.94, bottom=0.12, top=0.92)
         current_grid_ratios = cp.GRIDSPEC_WIDTH_RATIOS_WITH_BAR.copy()
@@ -603,8 +606,8 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
 
         main_handles, main_labels = ax_main_price.get_legend_handles_labels()
         if markers:
-            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('buy_marker', 'v'), color='none', label='Buy absorption', markerfacecolor=cfg['plot'].get('buy_color', '#3b82f6'), markeredgecolor='white', markersize=8))
-            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', '^'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
+            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('buy_marker', 'o'), color='none', label='Buy absorption', markerfacecolor=cfg['plot'].get('buy_color', '#3b82f6'), markeredgecolor='white', markersize=8))
+            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', 'o'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
             main_labels.extend(['Buy absorption', 'Sell absorption'])
         if main_handles:
             ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=cp.LEGEND_FONTSIZE, loc='upper left', bbox_to_anchor=(0.01, 0.99), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
