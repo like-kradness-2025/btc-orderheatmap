@@ -121,7 +121,7 @@ def load_absorption_config(path: Path) -> dict:
             'large_size': 340.0,
             'buy_marker': 'o',
             'sell_marker': 'o',
-            'y_offset_ratio': 0.06,
+            'y_offset_ratio': 0.12,
             'keep_strongest_per_bar': True,
             'min_bars_between_same_side': 0,
         },
