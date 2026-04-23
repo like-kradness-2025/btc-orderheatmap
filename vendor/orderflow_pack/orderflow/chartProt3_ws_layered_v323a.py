@@ -49,7 +49,7 @@ def draw_price_direction_background(ax_oi, price_ohlc: pd.DataFrame, cp_mod):
         left = center - slot_days / 2.0
         right = center + slot_days / 2.0
         color = blue if close >= open_ else red
-        ax_oi.axvspan(left, right, color=color, alpha=0.10, ec='none', zorder=0.1)
+        ax_oi.axvspan(left, right, color=color, alpha=0.22, ec='none', zorder=0.1)
 
 
 def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> io.BytesIO:
