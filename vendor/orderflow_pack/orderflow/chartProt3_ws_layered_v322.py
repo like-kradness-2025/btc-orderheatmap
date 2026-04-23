@@ -21,6 +21,7 @@ def load_target_module():
 
 base = load_target_module()
 base.VERSION_LABEL = 'v3.22'
+load_absorption_config = base.load_absorption_config
 DiscordUploadError = base.DiscordUploadError
 
 
