@@ -3,9 +3,7 @@ import asyncio
 import importlib.util
 import io
 import json
-import os
 import sys
-import time
 from pathlib import Path
 
 import aiohttp
@@ -25,7 +23,7 @@ PROJECT_ROOT = BASE.parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lib.discord_uploader import upload_file, DiscordUploadError
+from lib.discord_uploader import DiscordUploadError, upload_file
 
 CP_PATH = BASE / 'chartProt3_orig.py'
 WS_COMPAT_PATH = BASE / 'orderflow' / 'chartProt3_ws_compat.py'
@@ -34,6 +32,7 @@ DEFAULT_OUT_PNG = BASE / 'orderflow' / 'chartProt3_ws_layered_v3.png'
 DEFAULT_OHLCV_CACHE_PATH = BASE / 'orderflow' / 'ohlcv_cache.pkl'
 DEFAULT_ABSORPTION_CFG_PATH = BASE / 'orderflow' / 'absorption_marker_config.json'
 
+VERSION_LABEL = 'v3.21'
 SAVEFIG_DPI_OVERRIDE = 85
 OHLCV_CACHE_TTL_SEC = 60
 HOURS_TO_PLOT_OVERRIDE = 8
@@ -41,12 +40,10 @@ OB_TIME_RESOLUTION_OVERRIDE = '5min'
 OB_Y_AXIS_RANGE_OVERRIDE = 8000
 OHLCV_INTERVAL_OVERRIDE = '5m'
 OHLCV_INTERVAL_MIN_OVERRIDE = 5
-
 TRADE_MARKER_SIZE_MIN = 20
 TRADE_MARKER_SIZE_MAX = 2000
 TRADE_MARKER_SIZE_POWER = 0.6
 TRADE_LIMIT_PER_SIDE = 20
-
 JST = pytz.timezone('Asia/Tokyo')
 
 
@@ -57,8 +54,8 @@ def load_module(name: str, path: Path):
     return mod
 
 
-cp = load_module('chartProt3_orig_layered_v3', CP_PATH)
-ws = load_module('chartProt3_ws_compat_layered_v3', WS_COMPAT_PATH)
+cp = load_module('chartProt3_orig_layered_v321', CP_PATH)
+ws = load_module('chartProt3_ws_compat_layered_v321', WS_COMPAT_PATH)
 
 
 def y_fmt(y, pos):
@@ -206,8 +203,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     plot_cfg = cfg.get('plot', {})
     work = bar_df.copy().reset_index()
     if 'ts' not in work.columns:
-        first_col = work.columns[0]
-        work = work.rename(columns={first_col: 'ts'})
+        work = work.rename(columns={work.columns[0]: 'ts'})
     work['ts'] = pd.to_datetime(work['ts'], utc=True, errors='coerce')
     work = work.dropna(subset=['ts'])
 
@@ -226,7 +222,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     work['depth_bid_delta_norm'] = normalize_series(work['depth_bid_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
 
     price_range = max(float(work['high'].max() - work['low'].min()), 1.0)
-    y_offset = price_range * float(plot_cfg.get('y_offset_ratio', 0.012))
+    y_offset = price_range * float(plot_cfg.get('y_offset_ratio', 0.06))
     min_score = float(cfg.get('minimum_score', 1.75))
     medium_score = float(cfg.get('medium_score', 2.5))
     large_score = float(cfg.get('large_score', 3.6))
@@ -234,7 +230,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
 
     def score_to_size(score: float) -> float:
         if score >= large_score:
-            return float(plot_cfg.get('large_size', 170.0))
+            return float(plot_cfg.get('large_size', 340.0))
         if score >= medium_score:
             return float(plot_cfg.get('medium_size', 120.0))
         return float(plot_cfg.get('small_size', 80.0))
@@ -262,27 +258,31 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
         sell_trigger = raw_ti < -min_ti_abs and sell_score >= min_score
         if buy_trigger and (not sell_trigger or buy_score >= sell_score):
             markers.append({
-                'ts': row['ts'], 'side': 'buy_absorption', 'score': buy_score,
+                'ts': row['ts'],
+                'side': 'buy_absorption',
+                'score': buy_score,
                 'price': float(row['high']) + y_offset,
                 'size': score_to_size(buy_score),
                 'color': plot_cfg.get('buy_color', '#3b82f6'),
-                'symbol': plot_cfg.get('buy_marker', 'o')
+                'symbol': plot_cfg.get('buy_marker', 'o'),
             })
         elif sell_trigger:
             markers.append({
-                'ts': row['ts'], 'side': 'sell_absorption', 'score': sell_score,
+                'ts': row['ts'],
+                'side': 'sell_absorption',
+                'score': sell_score,
                 'price': float(row['low']) - y_offset,
                 'size': score_to_size(sell_score),
                 'color': plot_cfg.get('sell_color', '#ef4444'),
-                'symbol': plot_cfg.get('sell_marker', 'o')
+                'symbol': plot_cfg.get('sell_marker', 'o'),
             })
     if plot_cfg.get('keep_strongest_per_bar', True):
-        tmp = {}
+        strongest = {}
         for ev in markers:
             key = (ev['ts'], ev['side'])
-            if key not in tmp or ev['score'] > tmp[key]['score']:
-                tmp[key] = ev
-        markers = sorted(tmp.values(), key=lambda x: x['ts'])
+            if key not in strongest or ev['score'] > strongest[key]['score']:
+                strongest[key] = ev
+        markers = sorted(strongest.values(), key=lambda x: x['ts'])
     return markers
 
 
@@ -327,52 +327,63 @@ def compute_center_price(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
     return 65000.0
 
 
-def draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df: pd.DataFrame, price_min: float, price_max: float, cp_mod):
+def build_regular_time_index(start_ts: pd.Timestamp, end_ts: pd.Timestamp, freq: str) -> pd.DatetimeIndex:
+    start_ts = pd.Timestamp(start_ts).tz_convert('UTC') if pd.Timestamp(start_ts).tzinfo else pd.Timestamp(start_ts).tz_localize('UTC')
+    end_ts = pd.Timestamp(end_ts).tz_convert('UTC') if pd.Timestamp(end_ts).tzinfo else pd.Timestamp(end_ts).tz_localize('UTC')
+    start_floor = start_ts.floor(freq)
+    end_floor = end_ts.floor(freq)
+    if end_floor < start_floor:
+        end_floor = start_floor
+    return pd.date_range(start=start_floor, end=end_floor, freq=freq, tz='UTC')
+
+
+def draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df: pd.DataFrame, price_min: float, price_max: float, cp_mod, time_min_dt_plot: pd.Timestamp, time_max_dt_plot: pd.Timestamp):
     num_price_bins_hm = int(np.ceil((price_max - price_min) / cp_mod.OB_PRICE_RESOLUTION))
     price_bins_hm = np.linspace(price_min, price_max, num_price_bins_hm + 1)
-    bid_pc_hm, ask_pc_hm = None, None
     if book_df.empty:
-        return bid_pc_hm, ask_pc_hm
+        return None, None
 
     book_df_unique = book_df[~book_df.index.duplicated(keep='last')] if not book_df.index.is_unique else book_df
     cols = [c for c in ['bids_json', 'asks_json'] if c in book_df_unique.columns]
     if not cols:
-        return bid_pc_hm, ask_pc_hm
-    book_resampled = book_df_unique[cols].resample(cp_mod.OB_TIME_RESOLUTION).last().dropna(how='all')
-    if book_resampled.empty:
-        return bid_pc_hm, ask_pc_hm
+        return None, None
 
+    book_resampled = book_df_unique[cols].resample(cp_mod.OB_TIME_RESOLUTION).last()
+    regular_index = build_regular_time_index(time_min_dt_plot, time_max_dt_plot, cp_mod.OB_TIME_RESOLUTION)
+    if len(regular_index) == 0:
+        return None, None
+    book_resampled = book_resampled.reindex(regular_index)
+
+    freq_delta = pd.Timedelta(cp_mod.OB_TIME_RESOLUTION)
     time_coords_dt_hm = book_resampled.index
-    if len(time_coords_dt_hm) == 0:
-        return bid_pc_hm, ask_pc_hm
-
-    time_deltas_hm = time_coords_dt_hm.to_series().diff().fillna(pd.Timedelta(cp_mod.OB_TIME_RESOLUTION))
-    time_edges_dt_hm_list = [time_coords_dt_hm[0]]
-    for i in range(len(time_coords_dt_hm)):
-        time_edges_dt_hm_list.append(time_coords_dt_hm[i] + time_deltas_hm.iloc[i])
+    time_edges_dt_hm_list = list(time_coords_dt_hm) + [time_coords_dt_hm[-1] + freq_delta]
     time_edges_num_hm = mdates.date2num(time_edges_dt_hm_list)
     num_time_bins_hm = len(time_coords_dt_hm)
     bid_grid_hm = np.zeros((num_price_bins_hm, num_time_bins_hm))
     ask_grid_hm = np.zeros((num_price_bins_hm, num_time_bins_hm))
+    populated_cols = np.zeros(num_time_bins_hm, dtype=bool)
 
     for t_idx, timestamp in enumerate(time_coords_dt_hm):
         row = book_resampled.loc[timestamp]
         bids = row.get('bids_json', {})
         asks = row.get('asks_json', {})
-        if isinstance(bids, dict):
+        if isinstance(bids, dict) and bids:
+            populated_cols[t_idx] = True
             for p, q in bids.items():
                 i = np.searchsorted(price_bins_hm, p, side='right') - 1
                 if 0 <= i < num_price_bins_hm:
                     bid_grid_hm[i, t_idx] += q
-        if isinstance(asks, dict):
+        if isinstance(asks, dict) and asks:
+            populated_cols[t_idx] = True
             for p, q in asks.items():
                 i = np.searchsorted(price_bins_hm, p, side='right') - 1
                 if 0 <= i < num_price_bins_hm:
                     ask_grid_hm[i, t_idx] += q
 
     qty_thresh = cp_mod.OB_MIN_QTY_THRESHOLD_HEATMAP.get('Futures', 0.0)
-    bid_mask = np.ma.masked_where(bid_grid_hm < qty_thresh, bid_grid_hm)
-    ask_mask = np.ma.masked_where(ask_grid_hm < qty_thresh, ask_grid_hm)
+    missing_mask = np.broadcast_to(~populated_cols, bid_grid_hm.shape)
+    bid_mask = np.ma.masked_where((bid_grid_hm < qty_thresh) | missing_mask, bid_grid_hm)
+    ask_mask = np.ma.masked_where((ask_grid_hm < qty_thresh) | missing_mask, ask_grid_hm)
     all_valid = []
     for grid in [bid_mask, ask_mask]:
         if np.ma.count(grid) > 0:
@@ -382,16 +393,17 @@ def draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df: pd.DataFrame, price
     cmap_bid = plt.get_cmap(cp_mod.OB_BID_CMAP_NAME)
     cmap_ask = plt.get_cmap(cp_mod.OB_ASK_CMAP_NAME)
     if cp_mod.OB_COLOR_NORM == 'log':
-        log_vmax = max(common_vmax, effective_vmin * 1.01)
-        norm_bid = mcolors.LogNorm(vmin=effective_vmin, vmax=log_vmax, clip=True)
-        norm_ask = mcolors.LogNorm(vmin=effective_vmin, vmax=log_vmax, clip=True)
+        vmax = max(common_vmax, effective_vmin * 1.01)
+        norm_bid = mcolors.LogNorm(vmin=effective_vmin, vmax=vmax, clip=True)
+        norm_ask = mcolors.LogNorm(vmin=effective_vmin, vmax=vmax, clip=True)
     elif cp_mod.OB_COLOR_NORM == 'power':
-        pow_vmax = max(common_vmax, effective_vmin * 1.01)
-        norm_bid = mcolors.PowerNorm(gamma=cp_mod.OB_POWER_GAMMA, vmin=effective_vmin, vmax=pow_vmax, clip=True)
-        norm_ask = mcolors.PowerNorm(gamma=cp_mod.OB_POWER_GAMMA, vmin=effective_vmin, vmax=pow_vmax, clip=True)
+        vmax = max(common_vmax, effective_vmin * 1.01)
+        norm_bid = mcolors.PowerNorm(gamma=cp_mod.OB_POWER_GAMMA, vmin=effective_vmin, vmax=vmax, clip=True)
+        norm_ask = mcolors.PowerNorm(gamma=cp_mod.OB_POWER_GAMMA, vmin=effective_vmin, vmax=vmax, clip=True)
     else:
         norm_bid = mcolors.Normalize(vmin=qty_thresh, vmax=common_vmax, clip=True)
         norm_ask = mcolors.Normalize(vmin=qty_thresh, vmax=common_vmax, clip=True)
+
     bid_pc_hm = ax_main_price.pcolormesh(time_edges_num_hm, price_bins_hm, bid_mask, cmap=cmap_bid, norm=norm_bid, shading='flat', zorder=1, alpha=0.8)
     ask_pc_hm = ax_main_price.pcolormesh(time_edges_num_hm, price_bins_hm, ask_mask, cmap=cmap_ask, norm=norm_ask, shading='flat', zorder=1, alpha=0.8)
 
@@ -464,7 +476,6 @@ def draw_trade_circle_layer(ax_main_price, aggregated_trade_df: pd.DataFrame, cp
 def draw_candle_layer(ax_main_price, ohlc_df: pd.DataFrame, cp_mod):
     if ohlc_df.empty:
         return
-    idx_num = mdates.date2num(ohlc_df.index.to_pydatetime())
     width_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60 / (24 * 60 * 60)) * 0.7
     up = ohlc_df[ohlc_df['close'] >= ohlc_df['open']]
     down = ohlc_df[ohlc_df['close'] < ohlc_df['open']]
@@ -554,9 +565,9 @@ def draw_orderbook_bar_layer(ax_ob_bars, book_df: pd.DataFrame, price_min: float
     def qty_formatter_func(x, pos):
         actual_qty = (x / cp_mod.OB_BAR_MAX_WIDTH_RATIO) * max_bar_qty_abs
         return y_fmt(actual_qty, pos)
+
     ax_ob_bars.xaxis.set_major_formatter(FuncFormatter(qty_formatter_func))
-    tick_positions = np.linspace(0, cp_mod.OB_BAR_MAX_WIDTH_RATIO, 3)
-    ax_ob_bars.set_xticks(tick_positions)
+    ax_ob_bars.set_xticks(np.linspace(0, cp_mod.OB_BAR_MAX_WIDTH_RATIO, 3))
     ax_ob_bars.grid(True, axis='x', linestyle=':', alpha=0.2, color='gray', zorder=0)
 
 
@@ -589,7 +600,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         plt.setp(ax_main_price.get_xticklabels(), visible=False)
         ax_main_price.grid(True, axis='x', linestyle=':', alpha=0.3, color='gray', zorder=0)
 
-        draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df, price_min, price_max, cp)
+        draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df, price_min, price_max, cp, time_min_dt_plot, time_max_dt_plot)
         visible_ohlc = ohlc_data[(ohlc_data.index >= time_min_dt_plot) & (ohlc_data.index <= time_max_dt_plot)] if not ohlc_data.empty else pd.DataFrame()
         draw_candle_layer(ax_main_price, visible_ohlc, cp)
         draw_vwap_layer(ax_main_price, visible_ohlc, cp)
@@ -613,7 +624,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=cp.LEGEND_FONTSIZE, loc='upper left', bbox_to_anchor=(0.01, 0.99), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
 
         title_time_str = time_max_dt_plot.astimezone(JST).strftime('%Y-%m-%d %H:%M') if pd.notna(time_max_dt_plot) else 'N/A'
-        fig.suptitle(f"{cp.EXCHANGE_NAME} {symbol.replace('/','_')} [{market}] Layered Flow Chart ({cp.OHLCV_API_INTERVAL} Candle) - {title_time_str} JST", color='white', fontsize=cp.TITLE_FONTSIZE, y=0.96)
+        fig.suptitle(f"{cp.EXCHANGE_NAME} {symbol.replace('/', '_')} [{market}] Layered Flow Chart {VERSION_LABEL} ({cp.OHLCV_API_INTERVAL} Candle) - {title_time_str} JST", color='white', fontsize=cp.TITLE_FONTSIZE, y=0.96)
         try:
             fig.canvas.draw()
             fig.tight_layout(rect=[0.03, 0.04, 0.97, 0.95])
@@ -635,7 +646,7 @@ def upload_output_if_needed(out_png: Path, discord_channel_id: str | None, disco
 
 
 async def run_once(hours_to_plot: int = 8, data_dir: Path | None = None, out_png: Path | None = None, ohlcv_cache_path: Path | None = None, absorption_config_path: Path | None = None, discord_channel_id: str | None = None, discord_message: str = ''):
-    cp.HOURS_TO_PLOT = HOURS_TO_PLOT_OVERRIDE if HOURS_TO_PLOT_OVERRIDE else hours_to_plot
+    cp.HOURS_TO_PLOT = hours_to_plot if hours_to_plot else HOURS_TO_PLOT_OVERRIDE
     cp.OB_TIME_RESOLUTION = OB_TIME_RESOLUTION_OVERRIDE
     cp.OB_Y_AXIS_RANGE = OB_Y_AXIS_RANGE_OVERRIDE
     cp.OHLCV_API_INTERVAL = OHLCV_INTERVAL_OVERRIDE
@@ -646,12 +657,10 @@ async def run_once(hours_to_plot: int = 8, data_dir: Path | None = None, out_png
         '24H': (int(24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FFD700'),
         '7D':  (int(7 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FFA500'),
         '14D': (int(14 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#87CEEB'),
-        '30D': (int(30 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FF00FF')
+        '30D': (int(30 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FF00FF'),
     }
-    try:
-        cp.plt.rcParams['savefig.dpi'] = SAVEFIG_DPI_OVERRIDE
-    except Exception:
-        pass
+    plt.rcParams['savefig.dpi'] = SAVEFIG_DPI_OVERRIDE
+
     data_dir = data_dir or DEFAULT_DATA_DIR
     out_png = out_png or DEFAULT_OUT_PNG
     ohlcv_cache_path = ohlcv_cache_path or DEFAULT_OHLCV_CACHE_PATH
@@ -667,12 +676,15 @@ async def run_once(hours_to_plot: int = 8, data_dir: Path | None = None, out_png
 
     ohlcv_start = now_utc - pd.Timedelta(hours=cp.HOURS_TO_PLOT + 1)
     ohlcv_df = ws.load_ohlcv_cache(ohlcv_cache_path, OHLCV_CACHE_TTL_SEC)
-    ohlcv_cache_hit = ohlcv_df is not None
+    ohlcv_cache_hit = ohlc_df is not None if 'ohlc_df' in locals() else False
     if ohlcv_df is None:
         async with aiohttp.ClientSession() as session:
             ohlcv_df = await cp.fetch_binance_ohlcv_from_api(session, market, cp.FUTURES_SYMBOL_API, cp.OHLCV_API_INTERVAL, ohlcv_start, now_utc)
         if isinstance(ohlcv_df, pd.DataFrame) and not ohlcv_df.empty:
             ws.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
+        ohlcv_cache_hit = False
+    else:
+        ohlcv_cache_hit = True
 
     if not ohlcv_df.empty and 'volume' in ohlcv_df.columns and cp.VOLUME_EMA_HOURS > 0:
         interval_seconds = cp.OHLCV_API_INTERVAL_MINUTES * 60
@@ -691,7 +703,7 @@ async def run_once(hours_to_plot: int = 8, data_dir: Path | None = None, out_png
     with open(out_png, 'wb') as f:
         f.write(img.getvalue())
 
-    print(f"OK out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, ohlcv={len(ohlcv_df)}, features={len(feature_df)}) markers={len(markers)} hours={cp.HOURS_TO_PLOT} ohlcv_cache_hit={ohlcv_cache_hit}")
+    print(f"OK version={VERSION_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, ohlcv={len(ohlcv_df)}, features={len(feature_df)}) markers={len(markers)} hours={cp.HOURS_TO_PLOT} ohlcv_cache_hit={ohlcv_cache_hit}")
 
     if discord_channel_id:
         upload_output_if_needed(out_png, discord_channel_id, discord_message)
