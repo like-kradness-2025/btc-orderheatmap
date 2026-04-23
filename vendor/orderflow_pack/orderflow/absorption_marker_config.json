@@ -33,6 +33,10 @@
     "sell_marker": "o",
     "y_offset_ratio": 0.06,
     "keep_strongest_per_bar": true,
-    "min_bars_between_same_side": 0
+    "min_bars_between_same_side": 0,
+    "marker_price_mode": "quote_first",
+    "marker_price_tick_size": 0.0,
+    "marker_price_fallback": "bar_extreme_offset",
+    "marker_price_fallback_offset_ratio": 0.02
   }
 }
