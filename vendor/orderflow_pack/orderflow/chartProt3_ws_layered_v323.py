@@ -126,10 +126,15 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         gs_top_inner = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_top_outer[1], width_ratios=[current_grid_ratios[1], current_grid_ratios[2]], wspace=0)
         ax_main_price = fig.add_subplot(gs_top_inner[0])
         ax_ob_bars = fig.add_subplot(gs_top_inner[1])
-        ax_oi = fig.add_subplot(gs_outer[1], sharex=ax_main_price)
 
-        for ax_ in [ax_cbar_left, ax_main_price, ax_ob_bars, ax_oi]:
+        gs_bottom_outer = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_outer[1], width_ratios=[current_grid_ratios[0], current_grid_ratios[1] + current_grid_ratios[2]], wspace=0.054)
+        ax_oi_spacer = fig.add_subplot(gs_bottom_outer[0])
+        gs_bottom_inner = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_bottom_outer[1], width_ratios=[current_grid_ratios[1], current_grid_ratios[2]], wspace=0)
+        ax_oi = fig.add_subplot(gs_bottom_inner[0], sharex=ax_main_price)
+
+        for ax_ in [ax_cbar_left, ax_main_price, ax_ob_bars, ax_oi, ax_oi_spacer]:
             ax_.set_facecolor(base.cp.BG_COLOR)
+        ax_oi_spacer.set_axis_off()
 
         ax_main_price.set_ylim(price_min, price_max)
         ax_main_price.yaxis.tick_right()
@@ -183,6 +188,9 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         try:
             fig.canvas.draw()
             fig.tight_layout(rect=[0.03, 0.04, 0.97, 0.95])
+            main_pos = ax_main_price.get_position()
+            oi_pos = ax_oi.get_position()
+            ax_oi.set_position([main_pos.x0, oi_pos.y0, main_pos.width, oi_pos.height])
         except Exception:
             pass
         img_buffer = io.BytesIO()
