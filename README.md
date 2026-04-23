@@ -13,9 +13,15 @@ BTC の orderflow / heatmap 生成専用。
 - `artifacts/orderflow_chart.png` が主な出力
 - `logs/orderflow_once.log` / `logs/orderflow_loop.log` で運用確認する
 
-## V3 layered renderer
+## V3.21 layered renderer
 
-V3 は、板 heatmap・ローソク足・約定円・右の板バー・吸収マーカーを**同一座標系で 1 回描画**する最小構成です。
+V3.21 は、板 heatmap・ローソク足・約定円・右の板バー・吸収マーカーを**同一座標系で 1 回描画**する V3 系の改修版です。
+
+### V3.21 の変更点
+
+- heatmap の欠損区間を明示的に空白として扱う
+- one-shot 実行時の表示時間を環境変数で変更できるようにする
+- 吸収マーカーは丸 (`o`) のまま維持する
 
 必要ファイルは次の 4 つです。
 
@@ -41,12 +47,14 @@ V3 は、板 heatmap・ローソク足・約定円・右の板バー・吸収マ
 - `ABSORPTION_CONFIG_PATH` で別設定ファイルを指定できる
 - `BTC_LIVE_DATA_DIR` で receiver 側の入力ディレクトリを切り替えできる
 - `ORDERHEATMAP_V3_OUT` で出力先を切り替えできる
+- `ORDERHEATMAP_V321_HOURS` または `ORDERHEATMAP_V3_HOURS` で表示時間を変更できる
 
-### V3 の狙い
+### V3.21 の狙い
 
 - PNG 後合成をやめる
 - 板 heatmap と約定円を維持する
 - 吸収マーカーを同じ座標系で直接描く
+- 欠損区間を stale な板で埋めて見せない
 - 実データに合わせて閾値だけ後から調整できるようにする
 
 ## 互換用に残してあるもの
