@@ -476,15 +476,15 @@ def draw_trade_circle_layer(ax_main_price, aggregated_trade_df: pd.DataFrame, cp
 def draw_candle_layer(ax_main_price, ohlc_df: pd.DataFrame, cp_mod):
     if ohlc_df.empty:
         return
-    width_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60 / (24 * 60 * 60)) * 0.7
+    width_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60 / (24 * 60 * 60)) * 0.9
     up = ohlc_df[ohlc_df['close'] >= ohlc_df['open']]
     down = ohlc_df[ohlc_df['close'] < ohlc_df['open']]
     up_idx_num = mdates.date2num(up.index.to_pydatetime())
     down_idx_num = mdates.date2num(down.index.to_pydatetime())
-    ax_main_price.bar(up_idx_num, up['close'] - up['open'], width_days, bottom=up['open'], color=cp_mod.CANDLE_UP_BODY_COLOR, alpha=cp_mod.CANDLE_ALPHA, zorder=2.1, edgecolor=cp_mod.CANDLE_UP_BODY_COLOR, linewidth=cp_mod.CANDLE_EDGE_LW)
-    ax_main_price.bar(down_idx_num, down['close'] - down['open'], width_days, bottom=down['open'], color=cp_mod.CANDLE_DOWN_BODY_COLOR, alpha=cp_mod.CANDLE_ALPHA, zorder=2.1, edgecolor=cp_mod.CANDLE_DOWN_BODY_COLOR, linewidth=cp_mod.CANDLE_EDGE_LW)
-    ax_main_price.vlines(up_idx_num, up['low'], up['high'], color=cp_mod.CANDLE_UP_WICK_COLOR, linewidth=cp_mod.CANDLE_WICK_LW, alpha=cp_mod.CANDLE_ALPHA, zorder=2.0)
-    ax_main_price.vlines(down_idx_num, down['low'], down['high'], color=cp_mod.CANDLE_DOWN_WICK_COLOR, linewidth=cp_mod.CANDLE_WICK_LW, alpha=cp_mod.CANDLE_ALPHA, zorder=2.0)
+    ax_main_price.bar(up_idx_num, up['close'] - up['open'], width_days, bottom=up['open'], color=cp_mod.CANDLE_UP_BODY_COLOR, alpha=cp_mod.CANDLE_ALPHA, zorder=4.2, edgecolor=cp_mod.CANDLE_UP_BODY_COLOR, linewidth=max(cp_mod.CANDLE_EDGE_LW, 0.35))
+    ax_main_price.bar(down_idx_num, down['close'] - down['open'], width_days, bottom=down['open'], color=cp_mod.CANDLE_DOWN_BODY_COLOR, alpha=cp_mod.CANDLE_ALPHA, zorder=4.2, edgecolor=cp_mod.CANDLE_DOWN_BODY_COLOR, linewidth=max(cp_mod.CANDLE_EDGE_LW, 0.35))
+    ax_main_price.vlines(up_idx_num, up['low'], up['high'], color=cp_mod.CANDLE_UP_WICK_COLOR, linewidth=max(cp_mod.CANDLE_WICK_LW, 0.85), alpha=cp_mod.CANDLE_ALPHA, zorder=4.1)
+    ax_main_price.vlines(down_idx_num, down['low'], down['high'], color=cp_mod.CANDLE_DOWN_WICK_COLOR, linewidth=max(cp_mod.CANDLE_WICK_LW, 0.85), alpha=cp_mod.CANDLE_ALPHA, zorder=4.1)
 
 
 def draw_vwap_layer(ax_main_price, ohlc_df: pd.DataFrame, cp_mod):
@@ -597,7 +597,10 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         ax_main_price.tick_params(axis='y', colors='white', labelsize=cp.TICK_LABEL_FONTSIZE, labelright=False)
         ax_main_price.yaxis.set_major_formatter(price_formatter)
         ax_main_price.set_xlim(mdates.date2num(time_min_dt_plot), mdates.date2num(time_max_dt_plot))
-        plt.setp(ax_main_price.get_xticklabels(), visible=False)
+        ax_main_price.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=8))
+        ax_main_price.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=JST))
+        ax_main_price.tick_params(axis='x', colors='white', labelsize=cp.TICK_LABEL_FONTSIZE, bottom=True, labelbottom=True)
+        ax_main_price.xaxis.get_offset_text().set_visible(False)
         ax_main_price.grid(True, axis='x', linestyle=':', alpha=0.3, color='gray', zorder=0)
 
         draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df, price_min, price_max, cp, time_min_dt_plot, time_max_dt_plot)

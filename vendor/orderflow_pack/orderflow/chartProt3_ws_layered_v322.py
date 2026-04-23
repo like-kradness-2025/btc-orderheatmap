@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+
 BASE = Path(__file__).resolve().parent
 TARGET_PATH = BASE / 'chartProt3_ws_layered_v3.py'
 
@@ -20,6 +21,7 @@ def load_target_module():
 
 base = load_target_module()
 base.VERSION_LABEL = 'v3.22'
+DiscordUploadError = base.DiscordUploadError
 
 
 PRICE_CANDIDATE_COLS = [
