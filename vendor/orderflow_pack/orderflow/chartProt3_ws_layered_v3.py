@@ -287,25 +287,22 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
 
 
 def compute_plot_window(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, hours: int):
-    all_times = []
-    if not book_df.empty:
-        all_times.extend(book_df.index.tolist())
-    if not aggregated_trade_df.empty:
-        all_times.extend(aggregated_trade_df.index.tolist())
-    if not ohlc_data.empty:
-        latest_data_time = ohlc_data.index.max()
-        if not book_df.empty and book_df.index.max() > latest_data_time:
-            latest_data_time = book_df.index.max()
-        if not aggregated_trade_df.empty and aggregated_trade_df.index.max() > latest_data_time:
-            latest_data_time = aggregated_trade_df.index.max()
+    latest_data_time = None
+    for df in (book_df, aggregated_trade_df, ohlc_data):
+        if df is None or df.empty:
+            continue
+        try:
+            idx_max = df.index.max()
+        except Exception:
+            continue
+        if pd.notna(idx_max) and (latest_data_time is None or idx_max > latest_data_time):
+            latest_data_time = idx_max
+
+    if latest_data_time is not None:
         effective_plot_end_time = latest_data_time
         effective_plot_start_time = effective_plot_end_time - pd.Timedelta(hours=hours)
-        ohlc_for_plot_window = ohlc_data[(ohlc_data.index >= effective_plot_start_time) & (ohlc_data.index <= effective_plot_end_time)]
-        all_times.extend(ohlc_for_plot_window.index.tolist())
-    if all_times:
-        valid_times = [t for t in all_times if pd.notna(t)]
-        if valid_times:
-            return min(valid_times), max(valid_times)
+        return effective_plot_start_time, effective_plot_end_time
+
     time_max = pd.Timestamp.now(tz=pytz.utc)
     time_min = time_max - pd.Timedelta(hours=hours)
     return time_min, time_max
