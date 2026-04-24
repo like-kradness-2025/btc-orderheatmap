@@ -17,6 +17,9 @@ from matplotlib.ticker import FuncFormatter
 BASE = Path(__file__).resolve().parent
 TARGET_PATH = BASE / 'chartProt3_ws_layered_v323.py'
 VERSION_LABEL = 'v3.23a'
+TARGET_SAVEFIG_DPI = 276
+TARGET_FIGSIZE = (6210 / TARGET_SAVEFIG_DPI, 4018 / TARGET_SAVEFIG_DPI)
+DEFAULT_OUT_PNG = BASE.parents[2] / 'artifacts' / 'orderflow_chart_v323a.png'
 JST = pytz.timezone('Asia/Tokyo')
 
 
@@ -59,7 +62,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
     time_min_dt_plot, time_max_dt_plot = base.compute_plot_window(book_df, aggregated_trade_df, ohlc_data, base.cp.HOURS_TO_PLOT)
 
     with plt.style.context('dark_background'):
-        fig = plt.figure(figsize=(base.cp.FIG_WIDTH * 1.5, base.cp.FIG_HEIGHT * 1.12))
+        fig = plt.figure(figsize=TARGET_FIGSIZE)
         fig.patch.set_facecolor('#121212')
         gs_outer = gridspec.GridSpec(2, 1, height_ratios=[6.2, 1.55], hspace=0.08, left=0.06, right=0.94, bottom=0.10, top=0.92)
 
@@ -138,7 +141,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         except Exception:
             pass
         img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=400, facecolor=fig.get_facecolor())
+        plt.savefig(img_buffer, format='png', dpi=TARGET_SAVEFIG_DPI, facecolor=fig.get_facecolor())
         img_buffer.seek(0)
         plt.close(fig)
         return img_buffer
@@ -158,10 +161,10 @@ async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_pn
         '14D': (int(14 * 24 * 60 / base.cp.OHLCV_API_INTERVAL_MINUTES), '#87CEEB'),
         '30D': (int(30 * 24 * 60 / base.cp.OHLCV_API_INTERVAL_MINUTES), '#FF00FF'),
     }
-    plt.rcParams['savefig.dpi'] = base.SAVEFIG_DPI_OVERRIDE
+    plt.rcParams['savefig.dpi'] = TARGET_SAVEFIG_DPI
 
     data_dir = data_dir or base.DEFAULT_DATA_DIR
-    out_png = out_png or base.DEFAULT_OUT_PNG
+    out_png = out_png or DEFAULT_OUT_PNG
     ohlcv_cache_path = ohlcv_cache_path or base.DEFAULT_OHLCV_CACHE_PATH
     absorption_config_path = absorption_config_path or base.DEFAULT_ABSORPTION_CFG_PATH
     cfg = target.mod.load_absorption_config(absorption_config_path)
@@ -211,7 +214,7 @@ async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_pn
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with price-direction background stripes on OI subplot')
     ap.add_argument('--data-dir', default=str(base.DEFAULT_DATA_DIR))
-    ap.add_argument('--out', default=str(base.DEFAULT_OUT_PNG))
+    ap.add_argument('--out', default=str(DEFAULT_OUT_PNG))
     ap.add_argument('--ohlcv-cache', default=str(base.DEFAULT_OHLCV_CACHE_PATH))
     ap.add_argument('--hours', type=int, default=12)
     ap.add_argument('--absorption-config', default=str(base.DEFAULT_ABSORPTION_CFG_PATH))

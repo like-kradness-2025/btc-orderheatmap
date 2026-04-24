@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DATADIR=${1:-./data/live}
-OUT=${2:-./tmp/chart_v323a.png}
+OUT=${2:-./artifacts/orderflow_chart_v323a.png}
 HOURS=${3:-12}
 ABS_CFG=${4:-$(cd "$(dirname "$0")" && pwd)/orderflow/absorption_marker_config.json}
 DISCORD_CHANNEL_ID=${5:-}
