@@ -2,7 +2,7 @@
 set -euo pipefail
 DATADIR=${1:-./data/live}
 OUT=${2:-./tmp/chart_v323.png}
-HOURS=${3:-8}
+HOURS=${3:-12}
 ABS_CFG=${4:-$(cd "$(dirname "$0")" && pwd)/orderflow/absorption_marker_config.json}
 DISCORD_CHANNEL_ID=${5:-}
 DISCORD_MESSAGE=${6:-}

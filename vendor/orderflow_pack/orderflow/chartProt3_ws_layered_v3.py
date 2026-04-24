@@ -35,7 +35,7 @@ DEFAULT_ABSORPTION_CFG_PATH = BASE / 'orderflow' / 'absorption_marker_config.jso
 VERSION_LABEL = 'v3.21'
 SAVEFIG_DPI_OVERRIDE = 85
 OHLCV_CACHE_TTL_SEC = 60
-HOURS_TO_PLOT_OVERRIDE = 8
+HOURS_TO_PLOT_OVERRIDE = 12
 OB_TIME_RESOLUTION_OVERRIDE = '5min'
 OB_Y_AXIS_RANGE_OVERRIDE = 8000
 OHLCV_INTERVAL_OVERRIDE = '5m'
@@ -645,7 +645,7 @@ def upload_output_if_needed(out_png: Path, discord_channel_id: str | None, disco
     return response
 
 
-async def run_once(hours_to_plot: int = 8, data_dir: Path | None = None, out_png: Path | None = None, ohlcv_cache_path: Path | None = None, absorption_config_path: Path | None = None, discord_channel_id: str | None = None, discord_message: str = ''):
+async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_png: Path | None = None, ohlcv_cache_path: Path | None = None, absorption_config_path: Path | None = None, discord_channel_id: str | None = None, discord_message: str = ''):
     cp.HOURS_TO_PLOT = hours_to_plot if hours_to_plot else HOURS_TO_PLOT_OVERRIDE
     cp.OB_TIME_RESOLUTION = OB_TIME_RESOLUTION_OVERRIDE
     cp.OB_Y_AXIS_RANGE = OB_Y_AXIS_RANGE_OVERRIDE
@@ -714,7 +714,7 @@ if __name__ == '__main__':
     ap.add_argument('--data-dir', default=str(DEFAULT_DATA_DIR))
     ap.add_argument('--out', default=str(DEFAULT_OUT_PNG))
     ap.add_argument('--ohlcv-cache', default=str(DEFAULT_OHLCV_CACHE_PATH))
-    ap.add_argument('--hours', type=int, default=8)
+    ap.add_argument('--hours', type=int, default=12)
     ap.add_argument('--absorption-config', default=str(DEFAULT_ABSORPTION_CFG_PATH))
     ap.add_argument('--discord-channel-id', default='')
     ap.add_argument('--discord-message', default='')
