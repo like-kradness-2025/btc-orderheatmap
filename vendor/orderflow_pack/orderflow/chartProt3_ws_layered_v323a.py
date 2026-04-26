@@ -16,7 +16,7 @@ from matplotlib.ticker import FuncFormatter
 
 BASE = Path(__file__).resolve().parent
 TARGET_PATH = BASE / 'chartProt3_ws_layered_v323.py'
-VERSION_LABEL = 'v3.26'
+VERSION_LABEL = 'v3.27'
 JST = pytz.timezone('Asia/Tokyo')
 
 
@@ -59,8 +59,11 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
     if oi_df.empty or price_df.empty:
         return 0
     # Intentional: these bands are aligned to price direction, not OI direction.
-    # v3.26 keeps the bands only on meaningfully large price moves, based on ATR.
+    # v3.27 keeps only the strongest band in each same-direction price run.
+    # Color intensity also scales with move strength, so weak moves stay faint.
     slot_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60) / (24 * 60 * 60)
+    interval = pd.Timedelta(minutes=max(1, int(cp_mod.OHLCV_API_INTERVAL_MINUTES)))
+    gap_limit = interval * 2
     price_by_ts = price_df[['open', 'high', 'low', 'close']].copy()
     for col in ['open', 'high', 'low', 'close']:
         price_by_ts[col] = pd.to_numeric(price_by_ts[col], errors='coerce')
@@ -73,14 +76,15 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
     if tr_pct.empty or atr_pct.empty:
         return 0
 
-    atr_mult = 0.90
+    atr_mult = 1.15
+    alpha_min = 0.08
+    alpha_max = 0.28
+    strength_cap = 2.80
     blue = '#60a5fa'
     red = '#fca5a5'
-    bands_drawn = 0
 
-    for ts, _ in oi_df.iterrows():
-        if ts not in price_by_ts.index:
-            continue
+    candidates = []
+    for ts in price_by_ts.index.intersection(oi_df.index):
         try:
             bar = price_by_ts.loc[ts]
             delta = float(bar['close']) - float(bar['open'])
@@ -90,15 +94,46 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
             continue
         if not np.isfinite(delta) or abs(delta) <= 1e-12:
             continue
-        if not np.isfinite(bar_tr_pct) or not np.isfinite(bar_atr_pct):
+        if not np.isfinite(bar_tr_pct) or not np.isfinite(bar_atr_pct) or bar_atr_pct <= 0:
             continue
-        if bar_tr_pct < (bar_atr_pct * atr_mult):
+        strength = bar_tr_pct / bar_atr_pct
+        if strength < atr_mult:
             continue
+        direction = 1 if delta > 0 else -1
+        candidates.append((ts, direction, delta, strength))
+
+    if not candidates:
+        return 0
+
+    selected = []
+    current_best = None
+    last_ts = None
+    last_dir = None
+    for item in candidates:
+        ts, direction, delta, strength = item
+        same_run = current_best is not None and direction == last_dir and last_ts is not None and (ts - last_ts) <= gap_limit
+        if same_run:
+            if strength > current_best[3]:
+                current_best = item
+        else:
+            if current_best is not None:
+                selected.append(current_best)
+            current_best = item
+        last_ts = ts
+        last_dir = direction
+    if current_best is not None:
+        selected.append(current_best)
+
+    bands_drawn = 0
+    for ts, direction, delta, strength in selected:
         center = mdates.date2num(pd.Timestamp(ts).to_pydatetime())
         left = center - slot_days / 2.0
         right = center + slot_days / 2.0
-        color = blue if delta > 0 else red
-        ax_oi.axvspan(left, right, color=color, alpha=0.22, ec='none', zorder=0.1)
+        color = blue if direction > 0 else red
+        strength_norm = (strength - atr_mult) / max(strength_cap - atr_mult, 1e-9)
+        strength_norm = float(np.clip(strength_norm, 0.0, 1.0))
+        alpha = alpha_min + (alpha_max - alpha_min) * strength_norm
+        ax_oi.axvspan(left, right, color=color, alpha=alpha, ec='none', zorder=0.1)
         bands_drawn += 1
 
     return bands_drawn
@@ -261,7 +296,7 @@ async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_pn
 
 
 if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with price-gated background stripes')
+    ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with price-gradient background stripes')
     ap.add_argument('--data-dir', default=str(base.DEFAULT_DATA_DIR))
     ap.add_argument('--out', default=str(base.DEFAULT_OUT_PNG))
     ap.add_argument('--ohlcv-cache', default=str(base.DEFAULT_OHLCV_CACHE_PATH))
