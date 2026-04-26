@@ -59,11 +59,8 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
     if oi_df.empty or price_df.empty:
         return 0
     # Intentional: these bands are aligned to price direction, not OI direction.
-    # v3.27 keeps only the strongest band in each same-direction price run.
-    # Color intensity also scales with move strength, so weak moves stay faint.
+    # v3.27 keeps all qualifying bands, but fades weak moves and boosts strong ones.
     slot_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60) / (24 * 60 * 60)
-    interval = pd.Timedelta(minutes=max(1, int(cp_mod.OHLCV_API_INTERVAL_MINUTES)))
-    gap_limit = interval * 2
     price_by_ts = price_df[['open', 'high', 'low', 'close']].copy()
     for col in ['open', 'high', 'low', 'close']:
         price_by_ts[col] = pd.to_numeric(price_by_ts[col], errors='coerce')
@@ -83,7 +80,7 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
     blue = '#60a5fa'
     red = '#fca5a5'
 
-    candidates = []
+    bands_drawn = 0
     for ts in price_by_ts.index.intersection(oi_df.index):
         try:
             bar = price_by_ts.loc[ts]
@@ -100,32 +97,6 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
         if strength < atr_mult:
             continue
         direction = 1 if delta > 0 else -1
-        candidates.append((ts, direction, delta, strength))
-
-    if not candidates:
-        return 0
-
-    selected = []
-    current_best = None
-    last_ts = None
-    last_dir = None
-    for item in candidates:
-        ts, direction, delta, strength = item
-        same_run = current_best is not None and direction == last_dir and last_ts is not None and (ts - last_ts) <= gap_limit
-        if same_run:
-            if strength > current_best[3]:
-                current_best = item
-        else:
-            if current_best is not None:
-                selected.append(current_best)
-            current_best = item
-        last_ts = ts
-        last_dir = direction
-    if current_best is not None:
-        selected.append(current_best)
-
-    bands_drawn = 0
-    for ts, direction, delta, strength in selected:
         center = mdates.date2num(pd.Timestamp(ts).to_pydatetime())
         left = center - slot_days / 2.0
         right = center + slot_days / 2.0
