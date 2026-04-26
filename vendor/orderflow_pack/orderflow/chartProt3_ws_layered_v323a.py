@@ -74,8 +74,8 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
         return 0
 
     atr_mult = 1.15
-    alpha_min = 0.08
-    alpha_max = 0.28
+    alpha_min = 0.12
+    alpha_max = 0.20
     strength_cap = 2.80
     blue = '#60a5fa'
     red = '#fca5a5'
