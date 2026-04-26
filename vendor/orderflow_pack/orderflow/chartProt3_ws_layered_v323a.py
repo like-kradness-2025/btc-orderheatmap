@@ -16,7 +16,7 @@ from matplotlib.ticker import FuncFormatter
 
 BASE = Path(__file__).resolve().parent
 TARGET_PATH = BASE / 'chartProt3_ws_layered_v323.py'
-VERSION_LABEL = 'v3.23a'
+VERSION_LABEL = 'v3.24'
 JST = pytz.timezone('Asia/Tokyo')
 
 
@@ -31,15 +31,21 @@ target = load_target_module()
 base = target.base
 
 
-def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod):
-    if oi_df.empty:
+def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.DataFrame):
+    if oi_df.empty or price_df.empty:
         return
+    # Intentional: these background bands are aligned to price direction, not OI direction.
+    # The goal in v3.24 is to visually annotate whether price closed up/down over each slot.
     slot_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60) / (24 * 60 * 60)
     blue = '#60a5fa'
     red = '#fca5a5'
+    price_by_ts = price_df[['open', 'close']].copy()
+    price_by_ts.index = pd.to_datetime(price_by_ts.index, utc=True)
     for ts, row in oi_df.iterrows():
+        if ts not in price_by_ts.index:
+            continue
         try:
-            delta = float(row['close']) - float(row['open'])
+            delta = float(price_by_ts.loc[ts, 'close']) - float(price_by_ts.loc[ts, 'open'])
         except Exception:
             continue
         if not np.isfinite(delta) or abs(delta) <= 1e-12:
@@ -97,7 +103,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         base.draw_orderbook_bar_layer(ax_ob_bars, book_df, price_min, price_max, base.cp)
 
         visible_oi = oi_ohlc[(oi_ohlc.index >= time_min_dt_plot) & (oi_ohlc.index <= time_max_dt_plot)] if not oi_ohlc.empty else pd.DataFrame()
-        draw_oi_delta_background(ax_oi, visible_oi, base.cp)
+        draw_oi_delta_background(ax_oi, visible_oi, base.cp, visible_ohlc)
         target.draw_oi_candle_layer(ax_oi, visible_oi, base.cp)
         ax_oi.grid(True, linestyle=':', alpha=0.25, color='gray', zorder=0)
         ax_oi.tick_params(axis='x', colors='white', labelsize=base.cp.TICK_LABEL_FONTSIZE)
@@ -208,7 +214,7 @@ async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_pn
 
 
 if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with OI delta background stripes')
+    ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with price-direction background stripes')
     ap.add_argument('--data-dir', default=str(base.DEFAULT_DATA_DIR))
     ap.add_argument('--out', default=str(base.DEFAULT_OUT_PNG))
     ap.add_argument('--ohlcv-cache', default=str(base.DEFAULT_OHLCV_CACHE_PATH))
