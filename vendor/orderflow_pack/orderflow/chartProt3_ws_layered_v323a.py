@@ -54,7 +54,7 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
         left = center - slot_days / 2.0
         right = center + slot_days / 2.0
         color = blue if delta > 0 else red
-        ax_oi.axvspan(left, right, color=color, alpha=0.10, ec='none', zorder=0.1)
+        ax_oi.axvspan(left, right, color=color, alpha=0.18, ec='none', zorder=0.1)
 
 
 def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> io.BytesIO:
