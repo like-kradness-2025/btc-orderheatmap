@@ -16,7 +16,7 @@ from matplotlib.ticker import FuncFormatter
 
 BASE = Path(__file__).resolve().parent
 TARGET_PATH = BASE / 'chartProt3_ws_layered_v323.py'
-VERSION_LABEL = 'v3.24'
+VERSION_LABEL = 'v3.25'
 JST = pytz.timezone('Asia/Tokyo')
 
 
@@ -31,30 +31,76 @@ target = load_target_module()
 base = target.base
 
 
+def compute_price_move_threshold(price_df: pd.DataFrame) -> float:
+    if price_df.empty:
+        return 0.0015
+    work = price_df[['open', 'close']].copy()
+    work['open'] = pd.to_numeric(work['open'], errors='coerce')
+    work['close'] = pd.to_numeric(work['close'], errors='coerce')
+    work.index = pd.to_datetime(work.index, utc=True, errors='coerce')
+    work = work.dropna(subset=['open', 'close']).sort_index()
+    if work.empty:
+        return 0.0015
+
+    prev_close = work['close'].shift(1)
+    move_pct = (work['close'] - prev_close).abs() / prev_close.abs().replace(0, np.nan)
+    move_pct = move_pct.replace([np.inf, -np.inf], np.nan).dropna()
+    if move_pct.empty:
+        move_pct = ((work['close'] - work['open']).abs() / work['open'].abs().replace(0, np.nan)).replace([np.inf, -np.inf], np.nan).dropna()
+    if move_pct.empty:
+        return 0.0015
+
+    window_bars = max(1, int(72))
+    if len(move_pct) > window_bars:
+        move_pct = move_pct.iloc[-window_bars:]
+
+    threshold = float(move_pct.quantile(0.85))
+    floor = 0.0010
+    fallback = 0.0015
+    if not np.isfinite(threshold) or threshold <= 0:
+        threshold = fallback
+    return float(max(floor, threshold))
+
+
 def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.DataFrame):
     if oi_df.empty or price_df.empty:
         return
-    # Intentional: these background bands are aligned to price direction, not OI direction.
-    # The goal in v3.24 is to visually annotate whether price closed up/down over each slot.
+    # Intentional: these bands are aligned to price direction, not OI direction.
+    # v3.25 keeps the bands only on meaningful price moves so quiet bars stay visually clean.
     slot_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60) / (24 * 60 * 60)
+    price_by_ts = price_df[['open', 'close']].copy()
+    price_by_ts['open'] = pd.to_numeric(price_by_ts['open'], errors='coerce')
+    price_by_ts['close'] = pd.to_numeric(price_by_ts['close'], errors='coerce')
+    price_by_ts.index = pd.to_datetime(price_by_ts.index, utc=True, errors='coerce')
+    price_by_ts = price_by_ts.dropna(subset=['open', 'close']).sort_index()
+    if price_by_ts.empty:
+        return
+
+    threshold = compute_price_move_threshold(price_by_ts)
     blue = '#60a5fa'
     red = '#fca5a5'
-    price_by_ts = price_df[['open', 'close']].copy()
-    price_by_ts.index = pd.to_datetime(price_by_ts.index, utc=True)
-    for ts, row in oi_df.iterrows():
+    prev_close = price_by_ts['close'].shift(1)
+    move_pct = (price_by_ts['close'] - prev_close).abs() / prev_close.abs().replace(0, np.nan)
+    move_pct = move_pct.replace([np.inf, -np.inf], np.nan)
+
+    for ts, _ in oi_df.iterrows():
         if ts not in price_by_ts.index:
             continue
         try:
-            delta = float(price_by_ts.loc[ts, 'close']) - float(price_by_ts.loc[ts, 'open'])
+            bar = price_by_ts.loc[ts]
+            delta = float(bar['close']) - float(bar['open'])
+            bar_move_pct = float(move_pct.loc[ts]) if ts in move_pct.index else np.nan
         except Exception:
             continue
         if not np.isfinite(delta) or abs(delta) <= 1e-12:
+            continue
+        if not np.isfinite(bar_move_pct) or bar_move_pct < threshold:
             continue
         center = mdates.date2num(pd.Timestamp(ts).to_pydatetime())
         left = center - slot_days / 2.0
         right = center + slot_days / 2.0
         color = blue if delta > 0 else red
-        ax_oi.axvspan(left, right, color=color, alpha=0.18, ec='none', zorder=0.1)
+        ax_oi.axvspan(left, right, color=color, alpha=0.22, ec='none', zorder=0.1)
 
 
 def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> io.BytesIO:
@@ -214,7 +260,7 @@ async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_pn
 
 
 if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with price-direction background stripes')
+    ap = argparse.ArgumentParser(description='Layered orderheatmap renderer with price-gated background stripes')
     ap.add_argument('--data-dir', default=str(base.DEFAULT_DATA_DIR))
     ap.add_argument('--out', default=str(base.DEFAULT_OUT_PNG))
     ap.add_argument('--ohlcv-cache', default=str(base.DEFAULT_OHLCV_CACHE_PATH))
