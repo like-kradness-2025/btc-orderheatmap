@@ -54,8 +54,8 @@ def compute_price_move_threshold(price_df: pd.DataFrame) -> float:
     if len(move_pct) > window_bars:
         move_pct = move_pct.iloc[-window_bars:]
 
-    threshold = float(move_pct.quantile(0.85))
-    floor = 0.0010
+    threshold = float(move_pct.quantile(0.70))
+    floor = 0.0007
     fallback = 0.0015
     if not np.isfinite(threshold) or threshold <= 0:
         threshold = fallback
