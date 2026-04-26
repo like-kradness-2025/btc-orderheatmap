@@ -16,7 +16,7 @@ from matplotlib.ticker import FuncFormatter
 
 BASE = Path(__file__).resolve().parent
 TARGET_PATH = BASE / 'chartProt3_ws_layered_v323.py'
-VERSION_LABEL = 'v3.25'
+VERSION_LABEL = 'v3.26'
 JST = pytz.timezone('Asia/Tokyo')
 
 
@@ -31,57 +31,52 @@ target = load_target_module()
 base = target.base
 
 
-def compute_price_move_threshold(price_df: pd.DataFrame) -> float:
+def compute_price_atr_gate(price_df: pd.DataFrame, period: int = 14):
     if price_df.empty:
-        return 0.0015
-    work = price_df[['open', 'close']].copy()
-    work['open'] = pd.to_numeric(work['open'], errors='coerce')
-    work['close'] = pd.to_numeric(work['close'], errors='coerce')
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    work = price_df[['high', 'low', 'close']].copy()
+    for col in ['high', 'low', 'close']:
+        work[col] = pd.to_numeric(work[col], errors='coerce')
     work.index = pd.to_datetime(work.index, utc=True, errors='coerce')
-    work = work.dropna(subset=['open', 'close']).sort_index()
+    work = work.dropna(subset=['high', 'low', 'close']).sort_index()
     if work.empty:
-        return 0.0015
+        return pd.Series(dtype=float), pd.Series(dtype=float)
 
     prev_close = work['close'].shift(1)
-    move_pct = (work['close'] - prev_close).abs() / prev_close.abs().replace(0, np.nan)
-    move_pct = move_pct.replace([np.inf, -np.inf], np.nan).dropna()
-    if move_pct.empty:
-        move_pct = ((work['close'] - work['open']).abs() / work['open'].abs().replace(0, np.nan)).replace([np.inf, -np.inf], np.nan).dropna()
-    if move_pct.empty:
-        return 0.0015
-
-    window_bars = max(1, int(72))
-    if len(move_pct) > window_bars:
-        move_pct = move_pct.iloc[-window_bars:]
-
-    threshold = float(move_pct.quantile(0.70))
-    floor = 0.0007
-    fallback = 0.0015
-    if not np.isfinite(threshold) or threshold <= 0:
-        threshold = fallback
-    return float(max(floor, threshold))
+    tr = pd.concat([
+        (work['high'] - work['low']).abs(),
+        (work['high'] - prev_close).abs(),
+        (work['low'] - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    tr_pct = tr / prev_close.abs().replace(0, np.nan)
+    atr_pct = tr_pct.rolling(period, min_periods=max(3, period // 2)).mean()
+    atr_pct = atr_pct.combine_first(tr_pct.expanding(min_periods=3).mean())
+    return tr_pct, atr_pct
 
 
 def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.DataFrame):
     if oi_df.empty or price_df.empty:
-        return
+        return 0
     # Intentional: these bands are aligned to price direction, not OI direction.
-    # v3.25 keeps the bands only on meaningful price moves so quiet bars stay visually clean.
+    # v3.26 keeps the bands only on meaningfully large price moves, based on ATR.
     slot_days = (cp_mod.OHLCV_API_INTERVAL_MINUTES * 60) / (24 * 60 * 60)
-    price_by_ts = price_df[['open', 'close']].copy()
-    price_by_ts['open'] = pd.to_numeric(price_by_ts['open'], errors='coerce')
-    price_by_ts['close'] = pd.to_numeric(price_by_ts['close'], errors='coerce')
+    price_by_ts = price_df[['open', 'high', 'low', 'close']].copy()
+    for col in ['open', 'high', 'low', 'close']:
+        price_by_ts[col] = pd.to_numeric(price_by_ts[col], errors='coerce')
     price_by_ts.index = pd.to_datetime(price_by_ts.index, utc=True, errors='coerce')
-    price_by_ts = price_by_ts.dropna(subset=['open', 'close']).sort_index()
+    price_by_ts = price_by_ts.dropna(subset=['open', 'high', 'low', 'close']).sort_index()
     if price_by_ts.empty:
-        return
+        return 0
 
-    threshold = compute_price_move_threshold(price_by_ts)
+    tr_pct, atr_pct = compute_price_atr_gate(price_by_ts)
+    if tr_pct.empty or atr_pct.empty:
+        return 0
+
+    atr_mult = 0.90
     blue = '#60a5fa'
     red = '#fca5a5'
-    prev_close = price_by_ts['close'].shift(1)
-    move_pct = (price_by_ts['close'] - prev_close).abs() / prev_close.abs().replace(0, np.nan)
-    move_pct = move_pct.replace([np.inf, -np.inf], np.nan)
+    bands_drawn = 0
 
     for ts, _ in oi_df.iterrows():
         if ts not in price_by_ts.index:
@@ -89,21 +84,27 @@ def draw_oi_delta_background(ax_oi, oi_df: pd.DataFrame, cp_mod, price_df: pd.Da
         try:
             bar = price_by_ts.loc[ts]
             delta = float(bar['close']) - float(bar['open'])
-            bar_move_pct = float(move_pct.loc[ts]) if ts in move_pct.index else np.nan
+            bar_tr_pct = float(tr_pct.loc[ts]) if ts in tr_pct.index else np.nan
+            bar_atr_pct = float(atr_pct.loc[ts]) if ts in atr_pct.index else np.nan
         except Exception:
             continue
         if not np.isfinite(delta) or abs(delta) <= 1e-12:
             continue
-        if not np.isfinite(bar_move_pct) or bar_move_pct < threshold:
+        if not np.isfinite(bar_tr_pct) or not np.isfinite(bar_atr_pct):
+            continue
+        if bar_tr_pct < (bar_atr_pct * atr_mult):
             continue
         center = mdates.date2num(pd.Timestamp(ts).to_pydatetime())
         left = center - slot_days / 2.0
         right = center + slot_days / 2.0
         color = blue if delta > 0 else red
         ax_oi.axvspan(left, right, color=color, alpha=0.22, ec='none', zorder=0.1)
+        bands_drawn += 1
+
+    return bands_drawn
 
 
-def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> io.BytesIO:
+def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> tuple[io.BytesIO, int]:
     center_price = base.compute_center_price(book_df, aggregated_trade_df, ohlc_data)
     price_min = center_price - (base.cp.OB_Y_AXIS_RANGE / 2.0)
     price_max = center_price + (base.cp.OB_Y_AXIS_RANGE / 2.0)
@@ -149,7 +150,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         base.draw_orderbook_bar_layer(ax_ob_bars, book_df, price_min, price_max, base.cp)
 
         visible_oi = oi_ohlc[(oi_ohlc.index >= time_min_dt_plot) & (oi_ohlc.index <= time_max_dt_plot)] if not oi_ohlc.empty else pd.DataFrame()
-        draw_oi_delta_background(ax_oi, visible_oi, base.cp, visible_ohlc)
+        bands_drawn = draw_oi_delta_background(ax_oi, visible_oi, base.cp, visible_ohlc)
         target.draw_oi_candle_layer(ax_oi, visible_oi, base.cp)
         ax_oi.grid(True, linestyle=':', alpha=0.25, color='gray', zorder=0)
         ax_oi.tick_params(axis='x', colors='white', labelsize=base.cp.TICK_LABEL_FONTSIZE)
@@ -192,7 +193,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         plt.savefig(img_buffer, format='png', dpi=276, facecolor=fig.get_facecolor())
         img_buffer.seek(0)
         plt.close(fig)
-        return img_buffer
+        return img_buffer, bands_drawn
 
 
 async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_png: Path | None = None, ohlcv_cache_path: Path | None = None, absorption_config_path: Path | None = None, discord_channel_id: str | None = None, discord_message: str = ''):
@@ -248,12 +249,12 @@ async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_pn
     oi_df = target.load_oi_rows(inputs['oi_jsonl'], ohlcv_start) if inputs.get('oi_jsonl') and inputs['oi_jsonl'].exists() else pd.DataFrame()
     oi_ohlc = target.build_oi_ohlc(oi_df, cfg.get('bar_interval', '5min')) if not oi_df.empty else pd.DataFrame()
 
-    img = render_layered_chart(book_df, agg_df, ohlcv_df, oi_ohlc, markers, cfg, market=market, symbol=symbol)
+    img, bands_drawn = render_layered_chart(book_df, agg_df, ohlcv_df, oi_ohlc, markers, cfg, market=market, symbol=symbol)
     out_png.parent.mkdir(parents=True, exist_ok=True)
     with open(out_png, 'wb') as f:
         f.write(img.getvalue())
 
-    print(f"OK version={VERSION_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, ohlcv={len(ohlcv_df)}, oi={len(oi_df)}, features={len(feature_df)}) markers={len(markers)} hours={base.cp.HOURS_TO_PLOT} ohlcv_cache_hit={ohlcv_cache_hit}")
+    print(f"OK version={VERSION_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, ohlcv={len(ohlcv_df)}, oi={len(oi_df)}, features={len(feature_df)}) markers={len(markers)} bands={bands_drawn} hours={base.cp.HOURS_TO_PLOT} ohlcv_cache_hit={ohlcv_cache_hit}")
 
     if discord_channel_id:
         base.upload_output_if_needed(out_png, discord_channel_id, discord_message)
