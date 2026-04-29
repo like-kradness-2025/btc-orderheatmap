@@ -1,8 +1,8 @@
 """Canonical CLI entrypoint for BTC orderheatmap.
 
-This module is the stable, versionless runtime surface. The historical renderer
-implementation is still used as the rendering engine during the v3.29 5S pass;
-new scripts should call this module instead of any versioned filename.
+This module is the stable, versionless runtime surface. Historical rendering
+code is hidden behind a stable internal engine alias while the v3.29 5S pass
+keeps existing chart behavior intact.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 from .version import VERSION_LABEL
 
 ROOT = Path(__file__).resolve().parents[1]
-LEGACY_ENGINE_PATH = ROOT / "vendor" / "orderflow_pack" / "orderflow" / "chartProt3_ws_layered_v323a.py"
+ENGINE_ALIAS_PATH = ROOT / "vendor" / "orderflow_pack" / "orderflow" / "current_engine.py"
 DEFAULT_DATA_DIR = ROOT / "data" / "live"
 DEFAULT_OUT_PNG = ROOT / "artifacts" / "orderflow_chart_latest.png"
 DEFAULT_OHLCV_CACHE_PATH = ROOT / "runtime" / "cache" / "ohlcv_cache.pkl"
@@ -23,9 +23,9 @@ DEFAULT_ABSORPTION_CFG_PATH = ROOT / "orderflow" / "config" / "absorption_marker
 
 
 def _load_engine():
-    spec = importlib.util.spec_from_file_location("orderheatmap_legacy_engine", LEGACY_ENGINE_PATH)
+    spec = importlib.util.spec_from_file_location("orderheatmap_current_engine", ENGINE_ALIAS_PATH)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"failed to load renderer engine: {LEGACY_ENGINE_PATH}")
+        raise RuntimeError(f"failed to load renderer engine: {ENGINE_ALIAS_PATH}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
