@@ -1,8 +1,8 @@
 """Canonical CLI entrypoint for BTC orderheatmap.
 
-This module is the stable, versionless runtime surface. Historical rendering
-code is hidden behind a stable internal engine alias while the v3.29 5S pass
-keeps existing chart behavior intact.
+This module is the stable, versionless runtime surface. The v3.30 engine is
+hidden behind a stable internal engine alias while keeping existing chart
+behavior intact.
 """
 
 from __future__ import annotations

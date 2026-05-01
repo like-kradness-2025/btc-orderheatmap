@@ -1,29 +1,10 @@
-import argparse
-import asyncio
-import importlib.util
-import json
-from pathlib import Path
+"""Absorption marker aggregation, scoring, positioning, and sizing for orderheatmap v3.30."""
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-
-BASE = Path(__file__).resolve().parent
-TARGET_PATH = BASE / 'chartProt3_ws_layered_v3.py'
-
-
-def load_target_module():
-    spec = importlib.util.spec_from_file_location('chartProt3_ws_layered_v3_base_v322', str(TARGET_PATH))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-base = load_target_module()
-base.VERSION_LABEL = 'v3.22'
-load_absorption_config = base.load_absorption_config
-DiscordUploadError = base.DiscordUploadError
-
+from runtime_v330 import normalize_series, _positive, _negative_abs
 
 PRICE_CANDIDATE_COLS = [
     'best_ask_price',
@@ -37,12 +18,46 @@ PRICE_CANDIDATE_COLS = [
     'mid',
 ]
 
+def _aggregate_feature_bars_base(feature_df: pd.DataFrame, ohlc_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    if feature_df.empty or ohlc_df.empty:
+        return pd.DataFrame()
+    feature_df = feature_df.copy()
+    interval = cfg.get('bar_interval', '5min')
+    feature_df['bar_ts'] = feature_df['ts'].dt.floor(interval)
+    cols = [
+        'trade_imbalance_notional_window',
+        'mid_move_window_bps',
+        'net_ask_add_cancel_notional_window',
+        'net_bid_add_cancel_notional_window',
+        'best_ask_qty_delta_window',
+        'best_bid_qty_delta_window',
+        'depth_ask_notional_5bps_delta_window',
+        'depth_bid_notional_5bps_delta_window',
+    ]
+    for col in cols:
+        feature_df[col] = pd.to_numeric(feature_df.get(col), errors='coerce').fillna(0.0)
+    grouped = feature_df.groupby('bar_ts')[cols].sum()
+    out = ohlc_df[['open', 'high', 'low', 'close']].copy()
+    out.index = pd.to_datetime(out.index, utc=True)
+    out = out.join(grouped, how='left')
+    return out.fillna(0.0)
 
-old_aggregate_feature_bars = base.aggregate_feature_bars
+def _safe_float(v):
+    try:
+        x = float(v)
+        if np.isfinite(x):
+            return x
+    except Exception:
+        return None
+    return None
 
+def _round_to_tick(price: float, tick: float | None):
+    if tick is None or tick <= 0:
+        return float(price)
+    return round(float(price) / tick) * tick
 
 def aggregate_feature_bars(feature_df: pd.DataFrame, ohlc_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    out = old_aggregate_feature_bars(feature_df, ohlc_df, cfg)
+    out = _aggregate_feature_bars_base(feature_df, ohlc_df, cfg)
     if out.empty or feature_df.empty:
         return out
     work = feature_df.copy()
@@ -56,23 +71,6 @@ def aggregate_feature_bars(feature_df: pd.DataFrame, ohlc_df: pd.DataFrame, cfg:
         grouped_extra = work.groupby('bar_ts').agg(extra)
         out = out.join(grouped_extra, how='left')
     return out
-
-
-def _safe_float(v):
-    try:
-        x = float(v)
-        if np.isfinite(x):
-            return x
-    except Exception:
-        return None
-    return None
-
-
-def _round_to_tick(price: float, tick: float | None):
-    if tick is None or tick <= 0:
-        return float(price)
-    return round(float(price) / tick) * tick
-
 
 def _pick_price_from_row(row, side: str, tick: float | None, plot_cfg: dict | None = None):
     side_candidates = {
@@ -97,7 +95,6 @@ def _pick_price_from_row(row, side: str, tick: float | None, plot_cfg: dict | No
                     val = val * (1 - offset_pct)
                 return _round_to_tick(val, tick)
     return None
-
 
 def _fallback_marker_price(row, side: str, plot_cfg: dict, tick: float | None):
     fallback = plot_cfg.get('marker_price_fallback', 'bar_extreme_offset')
@@ -133,7 +130,6 @@ def _fallback_marker_price(row, side: str, plot_cfg: dict, tick: float | None):
         price = low - span * offset_ratio
     return _round_to_tick(price, tick)
 
-
 def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     if bar_df.empty or not cfg.get('enabled', True):
         return []
@@ -149,14 +145,14 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     move_q = float(cfg.get('mid_move_quantile', 0.90))
     move_floor = float(cfg.get('mid_move_floor', 0.25))
 
-    work['ti_norm'] = base.normalize_series(work['trade_imbalance_notional_window'], q=norm_q, floor=norm_floor)
-    work['mid_move_norm'] = base.normalize_series(work['mid_move_window_bps'], q=move_q, floor=move_floor)
-    work['ask_replenish_norm'] = base.normalize_series(work['net_ask_add_cancel_notional_window'], q=norm_q, floor=norm_floor)
-    work['bid_replenish_norm'] = base.normalize_series(work['net_bid_add_cancel_notional_window'], q=norm_q, floor=norm_floor)
-    work['best_ask_delta_norm'] = base.normalize_series(work['best_ask_qty_delta_window'], q=norm_q, floor=norm_floor)
-    work['best_bid_delta_norm'] = base.normalize_series(work['best_bid_qty_delta_window'], q=norm_q, floor=norm_floor)
-    work['depth_ask_delta_norm'] = base.normalize_series(work['depth_ask_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
-    work['depth_bid_delta_norm'] = base.normalize_series(work['depth_bid_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
+    work['ti_norm'] = normalize_series(work['trade_imbalance_notional_window'], q=norm_q, floor=norm_floor)
+    work['mid_move_norm'] = normalize_series(work['mid_move_window_bps'], q=move_q, floor=move_floor)
+    work['ask_replenish_norm'] = normalize_series(work['net_ask_add_cancel_notional_window'], q=norm_q, floor=norm_floor)
+    work['bid_replenish_norm'] = normalize_series(work['net_bid_add_cancel_notional_window'], q=norm_q, floor=norm_floor)
+    work['best_ask_delta_norm'] = normalize_series(work['best_ask_qty_delta_window'], q=norm_q, floor=norm_floor)
+    work['best_bid_delta_norm'] = normalize_series(work['best_bid_qty_delta_window'], q=norm_q, floor=norm_floor)
+    work['depth_ask_delta_norm'] = normalize_series(work['depth_ask_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
+    work['depth_bid_delta_norm'] = normalize_series(work['depth_bid_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
 
     min_score = float(cfg.get('minimum_score', 1.75))
     medium_score = float(cfg.get('medium_score', 2.5))
@@ -181,18 +177,18 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
         move = float(row['mid_move_norm'])
         raw_ti = float(row['trade_imbalance_notional_window'])
         buy_score = (
-            float(cfg.get('buy_trade_weight', 1.0)) * base._positive(ti)
-            + float(cfg.get('ask_replenish_weight', 1.0)) * base._positive(row['ask_replenish_norm'])
-            + float(cfg.get('best_ask_delta_weight', 0.6)) * base._positive(row['best_ask_delta_norm'])
-            + float(cfg.get('depth_ask_delta_weight', 0.6)) * base._positive(row['depth_ask_delta_norm'])
-            + float(cfg.get('buy_stall_weight', 0.8)) * base._negative_abs(move)
+            float(cfg.get('buy_trade_weight', 1.0)) * _positive(ti)
+            + float(cfg.get('ask_replenish_weight', 1.0)) * _positive(row['ask_replenish_norm'])
+            + float(cfg.get('best_ask_delta_weight', 0.6)) * _positive(row['best_ask_delta_norm'])
+            + float(cfg.get('depth_ask_delta_weight', 0.6)) * _positive(row['depth_ask_delta_norm'])
+            + float(cfg.get('buy_stall_weight', 0.8)) * _negative_abs(move)
         )
         sell_score = (
-            float(cfg.get('sell_trade_weight', 1.0)) * base._negative_abs(ti)
-            + float(cfg.get('bid_replenish_weight', 1.0)) * base._positive(row['bid_replenish_norm'])
-            + float(cfg.get('best_bid_delta_weight', 0.6)) * base._positive(row['best_bid_delta_norm'])
-            + float(cfg.get('depth_bid_delta_weight', 0.6)) * base._positive(row['depth_bid_delta_norm'])
-            + float(cfg.get('sell_stall_weight', 0.8)) * base._positive(move)
+            float(cfg.get('sell_trade_weight', 1.0)) * _negative_abs(ti)
+            + float(cfg.get('bid_replenish_weight', 1.0)) * _positive(row['bid_replenish_norm'])
+            + float(cfg.get('best_bid_delta_weight', 0.6)) * _positive(row['best_bid_delta_norm'])
+            + float(cfg.get('depth_bid_delta_weight', 0.6)) * _positive(row['depth_bid_delta_norm'])
+            + float(cfg.get('sell_stall_weight', 0.8)) * _positive(move)
         )
         buy_trigger = raw_ti > min_ti_abs and buy_score >= min_score
         sell_trigger = raw_ti < -min_ti_abs and sell_score >= min_score
@@ -230,25 +226,3 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
                 strongest[key] = ev
         markers = sorted(strongest.values(), key=lambda x: x['ts'])
     return markers
-
-
-base.aggregate_feature_bars = aggregate_feature_bars
-base.compute_absorption_markers = compute_absorption_markers
-
-
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Single-pass layered orderheatmap renderer with improved marker price anchoring')
-    ap.add_argument('--data-dir', default=str(base.DEFAULT_DATA_DIR))
-    ap.add_argument('--out', default=str(base.DEFAULT_OUT_PNG))
-    ap.add_argument('--ohlcv-cache', default=str(base.DEFAULT_OHLCV_CACHE_PATH))
-    ap.add_argument('--hours', type=int, default=8)
-    ap.add_argument('--absorption-config', default=str(base.DEFAULT_ABSORPTION_CFG_PATH))
-    ap.add_argument('--discord-channel-id', default='')
-    ap.add_argument('--discord-message', default='')
-    args = ap.parse_args()
-    try:
-        asyncio.run(base.run_once(args.hours, Path(args.data_dir), Path(args.out), Path(args.ohlcv_cache), Path(args.absorption_config), args.discord_channel_id or None, args.discord_message))
-    except DiscordUploadError as exc:
-        raise SystemExit(f'Discord upload failed: {exc}')
-    except Exception as exc:
-        raise SystemExit(str(exc))

@@ -1,7 +1,7 @@
-import argparse
-import asyncio
+"""Shared runtime, config, data-loading, and base drawing helpers for orderheatmap v3.30."""
+from __future__ import annotations
+
 import importlib.util
-import io
 import json
 import sys
 from pathlib import Path
@@ -15,7 +15,6 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import pytz
-from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
 BASE = Path(__file__).resolve().parents[1]
@@ -28,11 +27,11 @@ from lib.discord_uploader import DiscordUploadError, upload_file
 CP_PATH = BASE / 'chartProt3_orig.py'
 WS_COMPAT_PATH = BASE / 'orderflow' / 'chartProt3_ws_compat.py'
 DEFAULT_DATA_DIR = BASE / 'data/live'
-DEFAULT_OUT_PNG = BASE / 'orderflow' / 'chartProt3_ws_layered_v3.png'
+DEFAULT_OUT_PNG = BASE / 'orderflow' / 'chartProt3_ws_layered_v330.png'
 DEFAULT_OHLCV_CACHE_PATH = BASE / 'orderflow' / 'ohlcv_cache.pkl'
 DEFAULT_ABSORPTION_CFG_PATH = BASE / 'orderflow' / 'absorption_marker_config.json'
 
-VERSION_LABEL = 'v3.21'
+VERSION_LABEL = 'v3.30'
 SAVEFIG_DPI_OVERRIDE = 85
 OHLCV_CACHE_TTL_SEC = 60
 HOURS_TO_PLOT_OVERRIDE = 12
@@ -54,9 +53,8 @@ def load_module(name: str, path: Path):
     return mod
 
 
-cp = load_module('chartProt3_orig_layered_v321', CP_PATH)
-ws = load_module('chartProt3_ws_compat_layered_v321', WS_COMPAT_PATH)
-
+cp = load_module('chartProt3_orig_layered_v330_runtime', CP_PATH)
+ws = load_module('chartProt3_ws_compat_layered_v330_runtime', WS_COMPAT_PATH)
 
 def y_fmt(y, pos):
     if abs(y) >= 1e9:
@@ -170,120 +168,6 @@ def load_feature_rows(feature_path: Path, start_ts: pd.Timestamp | None) -> pd.D
     if start_ts is not None:
         df = df[df['ts'] >= start_ts]
     return df
-
-
-def aggregate_feature_bars(feature_df: pd.DataFrame, ohlc_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    if feature_df.empty or ohlc_df.empty:
-        return pd.DataFrame()
-    feature_df = feature_df.copy()
-    interval = cfg.get('bar_interval', '5min')
-    feature_df['bar_ts'] = feature_df['ts'].dt.floor(interval)
-    cols = [
-        'trade_imbalance_notional_window',
-        'mid_move_window_bps',
-        'net_ask_add_cancel_notional_window',
-        'net_bid_add_cancel_notional_window',
-        'best_ask_qty_delta_window',
-        'best_bid_qty_delta_window',
-        'depth_ask_notional_5bps_delta_window',
-        'depth_bid_notional_5bps_delta_window',
-    ]
-    for col in cols:
-        feature_df[col] = pd.to_numeric(feature_df.get(col), errors='coerce').fillna(0.0)
-    grouped = feature_df.groupby('bar_ts')[cols].sum()
-    out = ohlc_df[['open', 'high', 'low', 'close']].copy()
-    out.index = pd.to_datetime(out.index, utc=True)
-    out = out.join(grouped, how='left')
-    return out.fillna(0.0)
-
-
-def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
-    if bar_df.empty or not cfg.get('enabled', True):
-        return []
-    plot_cfg = cfg.get('plot', {})
-    work = bar_df.copy().reset_index()
-    if 'ts' not in work.columns:
-        work = work.rename(columns={work.columns[0]: 'ts'})
-    work['ts'] = pd.to_datetime(work['ts'], utc=True, errors='coerce')
-    work = work.dropna(subset=['ts'])
-
-    norm_q = float(cfg.get('normalize_quantile', 0.95))
-    norm_floor = float(cfg.get('normalize_floor', 1.0))
-    move_q = float(cfg.get('mid_move_quantile', 0.90))
-    move_floor = float(cfg.get('mid_move_floor', 0.25))
-
-    work['ti_norm'] = normalize_series(work['trade_imbalance_notional_window'], q=norm_q, floor=norm_floor)
-    work['mid_move_norm'] = normalize_series(work['mid_move_window_bps'], q=move_q, floor=move_floor)
-    work['ask_replenish_norm'] = normalize_series(work['net_ask_add_cancel_notional_window'], q=norm_q, floor=norm_floor)
-    work['bid_replenish_norm'] = normalize_series(work['net_bid_add_cancel_notional_window'], q=norm_q, floor=norm_floor)
-    work['best_ask_delta_norm'] = normalize_series(work['best_ask_qty_delta_window'], q=norm_q, floor=norm_floor)
-    work['best_bid_delta_norm'] = normalize_series(work['best_bid_qty_delta_window'], q=norm_q, floor=norm_floor)
-    work['depth_ask_delta_norm'] = normalize_series(work['depth_ask_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
-    work['depth_bid_delta_norm'] = normalize_series(work['depth_bid_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
-
-    price_range = max(float(work['high'].max() - work['low'].min()), 1.0)
-    y_offset = price_range * float(plot_cfg.get('y_offset_ratio', 0.06))
-    min_score = float(cfg.get('minimum_score', 1.75))
-    medium_score = float(cfg.get('medium_score', 2.5))
-    large_score = float(cfg.get('large_score', 3.6))
-    min_ti_abs = float(cfg.get('minimum_trade_imbalance_notional', 0.0))
-
-    def score_to_size(score: float) -> float:
-        if score >= large_score:
-            return float(plot_cfg.get('large_size', 340.0))
-        if score >= medium_score:
-            return float(plot_cfg.get('medium_size', 120.0))
-        return float(plot_cfg.get('small_size', 80.0))
-
-    markers = []
-    for _, row in work.iterrows():
-        ti = float(row['ti_norm'])
-        move = float(row['mid_move_norm'])
-        raw_ti = float(row['trade_imbalance_notional_window'])
-        buy_score = (
-            float(cfg.get('buy_trade_weight', 1.0)) * _positive(ti)
-            + float(cfg.get('ask_replenish_weight', 1.0)) * _positive(row['ask_replenish_norm'])
-            + float(cfg.get('best_ask_delta_weight', 0.6)) * _positive(row['best_ask_delta_norm'])
-            + float(cfg.get('depth_ask_delta_weight', 0.6)) * _positive(row['depth_ask_delta_norm'])
-            + float(cfg.get('buy_stall_weight', 0.8)) * _negative_abs(move)
-        )
-        sell_score = (
-            float(cfg.get('sell_trade_weight', 1.0)) * _negative_abs(ti)
-            + float(cfg.get('bid_replenish_weight', 1.0)) * _positive(row['bid_replenish_norm'])
-            + float(cfg.get('best_bid_delta_weight', 0.6)) * _positive(row['best_bid_delta_norm'])
-            + float(cfg.get('depth_bid_delta_weight', 0.6)) * _positive(row['depth_bid_delta_norm'])
-            + float(cfg.get('sell_stall_weight', 0.8)) * _positive(move)
-        )
-        buy_trigger = raw_ti > min_ti_abs and buy_score >= min_score
-        sell_trigger = raw_ti < -min_ti_abs and sell_score >= min_score
-        if buy_trigger and (not sell_trigger or buy_score >= sell_score):
-            markers.append({
-                'ts': row['ts'],
-                'side': 'buy_absorption',
-                'score': buy_score,
-                'price': float(row['high']) + y_offset,
-                'size': score_to_size(buy_score),
-                'color': plot_cfg.get('buy_color', '#3b82f6'),
-                'symbol': plot_cfg.get('buy_marker', 'o'),
-            })
-        elif sell_trigger:
-            markers.append({
-                'ts': row['ts'],
-                'side': 'sell_absorption',
-                'score': sell_score,
-                'price': float(row['low']) - y_offset,
-                'size': score_to_size(sell_score),
-                'color': plot_cfg.get('sell_color', '#ef4444'),
-                'symbol': plot_cfg.get('sell_marker', 'o'),
-            })
-    if plot_cfg.get('keep_strongest_per_bar', True):
-        strongest = {}
-        for ev in markers:
-            key = (ev['ts'], ev['side'])
-            if key not in strongest or ev['score'] > strongest[key]['score']:
-                strongest[key] = ev
-        markers = sorted(strongest.values(), key=lambda x: x['ts'])
-    return markers
 
 
 def compute_plot_window(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, hours: int):
@@ -568,75 +452,6 @@ def draw_orderbook_bar_layer(ax_ob_bars, book_df: pd.DataFrame, price_min: float
     ax_ob_bars.grid(True, axis='x', linestyle=':', alpha=0.2, color='gray', zorder=0)
 
 
-def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> io.BytesIO:
-    center_price = compute_center_price(book_df, aggregated_trade_df, ohlc_data)
-    price_min = center_price - (cp.OB_Y_AXIS_RANGE / 2.0)
-    price_max = center_price + (cp.OB_Y_AXIS_RANGE / 2.0)
-    time_min_dt_plot, time_max_dt_plot = compute_plot_window(book_df, aggregated_trade_df, ohlc_data, cp.HOURS_TO_PLOT)
-
-    with plt.style.context('dark_background'):
-        fig = plt.figure(figsize=(cp.FIG_WIDTH * 1.5, cp.FIG_HEIGHT))
-        fig.patch.set_facecolor('#121212')
-        gs_outer = gridspec.GridSpec(3, 1, height_ratios=[6.5, 0.001, 0.001], hspace=0.0, left=0.06, right=0.94, bottom=0.12, top=0.92)
-        current_grid_ratios = cp.GRIDSPEC_WIDTH_RATIOS_WITH_BAR.copy()
-        gs_top_outer = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_outer[0], width_ratios=[current_grid_ratios[0], current_grid_ratios[1] + current_grid_ratios[2]], wspace=0.054)
-        ax_cbar_left = fig.add_subplot(gs_top_outer[0])
-        gs_top_inner = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_top_outer[1], width_ratios=[current_grid_ratios[1], current_grid_ratios[2]], wspace=0)
-        ax_main_price = fig.add_subplot(gs_top_inner[0])
-        ax_ob_bars = fig.add_subplot(gs_top_inner[1])
-        for ax_ in [ax_cbar_left, ax_main_price, ax_ob_bars]:
-            ax_.set_facecolor(cp.BG_COLOR)
-
-        ax_main_price.set_ylim(price_min, price_max)
-        ax_main_price.yaxis.tick_right()
-        ax_main_price.yaxis.set_label_position('right')
-        ax_main_price.yaxis.set_major_locator(mticker.MultipleLocator(200))
-        ax_main_price.tick_params(axis='y', colors='white', labelsize=cp.TICK_LABEL_FONTSIZE, labelright=False)
-        ax_main_price.yaxis.set_major_formatter(price_formatter)
-        ax_main_price.set_xlim(mdates.date2num(time_min_dt_plot), mdates.date2num(time_max_dt_plot))
-        ax_main_price.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=8))
-        ax_main_price.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M', tz=JST))
-        ax_main_price.tick_params(axis='x', colors='white', labelsize=cp.TICK_LABEL_FONTSIZE, bottom=True, labelbottom=True)
-        ax_main_price.xaxis.get_offset_text().set_visible(False)
-        ax_main_price.grid(True, axis='x', linestyle=':', alpha=0.3, color='gray', zorder=0)
-
-        draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df, price_min, price_max, cp, time_min_dt_plot, time_max_dt_plot)
-        visible_ohlc = ohlc_data[(ohlc_data.index >= time_min_dt_plot) & (ohlc_data.index <= time_max_dt_plot)] if not ohlc_data.empty else pd.DataFrame()
-        draw_candle_layer(ax_main_price, visible_ohlc, cp)
-        draw_vwap_layer(ax_main_price, visible_ohlc, cp)
-        draw_trade_circle_layer(ax_main_price, aggregated_trade_df, cp)
-        draw_absorption_marker_layer(ax_main_price, markers, cfg)
-        draw_orderbook_bar_layer(ax_ob_bars, book_df, price_min, price_max, cp)
-
-        latest_ohlc_visible = visible_ohlc.iloc[-1] if not visible_ohlc.empty else None
-        if latest_ohlc_visible is not None:
-            latest_plot_price = latest_ohlc_visible['close']
-            latest_price_color = cp.CANDLE_UP_BODY_COLOR if latest_ohlc_visible['close'] >= latest_ohlc_visible['open'] else cp.CANDLE_DOWN_BODY_COLOR
-            ax_ob_bars.text(0.38, latest_plot_price, f'{latest_plot_price:.2f}', transform=ax_ob_bars.get_yaxis_transform(), fontsize=max(cp.TICK_LABEL_FONTSIZE * 2.2, 18), fontweight='bold', color=latest_price_color, va='center', ha='left', bbox=dict(boxstyle='round,pad=0.28', fc='black', ec=latest_price_color, lw=1.0, alpha=0.82), zorder=6)
-            ax_ob_bars.axhline(latest_plot_price, color=latest_price_color, linestyle='--', linewidth=0.8, alpha=0.7, zorder=4)
-
-        main_handles, main_labels = ax_main_price.get_legend_handles_labels()
-        if markers:
-            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('buy_marker', 'o'), color='none', label='Buy absorption', markerfacecolor=cfg['plot'].get('buy_color', '#3b82f6'), markeredgecolor='white', markersize=8))
-            main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', 'o'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
-            main_labels.extend(['Buy absorption', 'Sell absorption'])
-        if main_handles:
-            ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=cp.LEGEND_FONTSIZE, loc='upper left', bbox_to_anchor=(0.01, 0.99), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
-
-        title_time_str = time_max_dt_plot.astimezone(JST).strftime('%Y-%m-%d %H:%M') if pd.notna(time_max_dt_plot) else 'N/A'
-        fig.suptitle(f"{cp.EXCHANGE_NAME} {symbol.replace('/', '_')} [{market}] Layered Flow Chart {VERSION_LABEL} ({cp.OHLCV_API_INTERVAL} Candle) - {title_time_str} JST", color='white', fontsize=cp.TITLE_FONTSIZE, y=0.96)
-        try:
-            fig.canvas.draw()
-            fig.tight_layout(rect=[0.03, 0.04, 0.97, 0.95])
-        except Exception:
-            pass
-        img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=400, facecolor=fig.get_facecolor())
-        img_buffer.seek(0)
-        plt.close(fig)
-        return img_buffer
-
-
 def upload_output_if_needed(out_png: Path, discord_channel_id: str | None, discord_message: str = ''):
     if not discord_channel_id:
         return None
@@ -645,83 +460,5 @@ def upload_output_if_needed(out_png: Path, discord_channel_id: str | None, disco
     return response
 
 
-async def run_once(hours_to_plot: int = 12, data_dir: Path | None = None, out_png: Path | None = None, ohlcv_cache_path: Path | None = None, absorption_config_path: Path | None = None, discord_channel_id: str | None = None, discord_message: str = ''):
-    cp.HOURS_TO_PLOT = hours_to_plot if hours_to_plot else HOURS_TO_PLOT_OVERRIDE
-    cp.OB_TIME_RESOLUTION = OB_TIME_RESOLUTION_OVERRIDE
-    cp.OB_Y_AXIS_RANGE = OB_Y_AXIS_RANGE_OVERRIDE
-    cp.OHLCV_API_INTERVAL = OHLCV_INTERVAL_OVERRIDE
-    cp.OHLCV_API_INTERVAL_MINUTES = OHLCV_INTERVAL_MIN_OVERRIDE
-    cp.OI_FETCH_INTERVAL = OHLCV_INTERVAL_OVERRIDE
-    cp.VWAP_PERIODS_CONFIG = {
-        '12H': (int(12 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FFFFFF'),
-        '24H': (int(24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FFD700'),
-        '7D':  (int(7 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FFA500'),
-        '14D': (int(14 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#87CEEB'),
-        '30D': (int(30 * 24 * 60 / cp.OHLCV_API_INTERVAL_MINUTES), '#FF00FF'),
-    }
-    plt.rcParams['savefig.dpi'] = SAVEFIG_DPI_OVERRIDE
-
-    data_dir = data_dir or DEFAULT_DATA_DIR
-    out_png = out_png or DEFAULT_OUT_PNG
-    ohlcv_cache_path = ohlcv_cache_path or DEFAULT_OHLCV_CACHE_PATH
-    absorption_config_path = absorption_config_path or DEFAULT_ABSORPTION_CFG_PATH
-    cfg = load_absorption_config(absorption_config_path)
-    market = 'Futures'
-    symbol = cp.SYMBOL
-    now_utc = pd.Timestamp.now(tz=pytz.utc)
-
-    inputs = resolve_inputs_v3(data_dir)
-    book_df = ws.load_book_data_with_stats_ws(market, cp.HOURS_TO_PLOT, inputs)
-    agg_df = ws.load_aggregated_trade_data_ws(market, cp.HOURS_TO_PLOT, inputs)
-
-    ohlcv_start = now_utc - pd.Timedelta(hours=cp.HOURS_TO_PLOT + 1)
-    ohlcv_df = ws.load_ohlcv_cache(ohlcv_cache_path, OHLCV_CACHE_TTL_SEC)
-    ohlcv_cache_hit = ohlc_df is not None if 'ohlc_df' in locals() else False
-    if ohlcv_df is None:
-        async with aiohttp.ClientSession() as session:
-            ohlcv_df = await cp.fetch_binance_ohlcv_from_api(session, market, cp.FUTURES_SYMBOL_API, cp.OHLCV_API_INTERVAL, ohlcv_start, now_utc)
-        if isinstance(ohlcv_df, pd.DataFrame) and not ohlcv_df.empty:
-            ws.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
-        ohlcv_cache_hit = False
-    else:
-        ohlcv_cache_hit = True
-
-    if not ohlcv_df.empty and 'volume' in ohlcv_df.columns and cp.VOLUME_EMA_HOURS > 0:
-        interval_seconds = cp.OHLCV_API_INTERVAL_MINUTES * 60
-        ema_span = max(1, int(cp.VOLUME_EMA_HOURS * 3600 / interval_seconds))
-        if len(ohlcv_df) > ema_span:
-            ohlcv_df['volume_ema'] = ohlcv_df['volume'].ewm(span=ema_span, adjust=False).mean()
-        else:
-            ohlcv_df['volume_ema'] = np.nan
-
-    feature_df = load_feature_rows(inputs['feature_jsonl'], ohlcv_start) if inputs['feature_jsonl'].exists() else pd.DataFrame()
-    visible_bars = aggregate_feature_bars(feature_df, ohlcv_df, cfg) if not feature_df.empty else pd.DataFrame()
-    markers = compute_absorption_markers(visible_bars, cfg)
-
-    img = render_layered_chart(book_df, agg_df, ohlcv_df, markers, cfg, market=market, symbol=symbol)
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_png, 'wb') as f:
-        f.write(img.getvalue())
-
-    print(f"OK version={VERSION_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, ohlcv={len(ohlcv_df)}, features={len(feature_df)}) markers={len(markers)} hours={cp.HOURS_TO_PLOT} ohlcv_cache_hit={ohlcv_cache_hit}")
-
-    if discord_channel_id:
-        upload_output_if_needed(out_png, discord_channel_id, discord_message)
-
-
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Single-pass layered orderheatmap renderer preserving heatmap and trade circles')
-    ap.add_argument('--data-dir', default=str(DEFAULT_DATA_DIR))
-    ap.add_argument('--out', default=str(DEFAULT_OUT_PNG))
-    ap.add_argument('--ohlcv-cache', default=str(DEFAULT_OHLCV_CACHE_PATH))
-    ap.add_argument('--hours', type=int, default=12)
-    ap.add_argument('--absorption-config', default=str(DEFAULT_ABSORPTION_CFG_PATH))
-    ap.add_argument('--discord-channel-id', default='')
-    ap.add_argument('--discord-message', default='')
-    args = ap.parse_args()
-    try:
-        asyncio.run(run_once(args.hours, Path(args.data_dir), Path(args.out), Path(args.ohlcv_cache), Path(args.absorption_config), args.discord_channel_id or None, args.discord_message))
-    except DiscordUploadError as exc:
-        raise SystemExit(f'Discord upload failed: {exc}')
-    except Exception as exc:
-        raise SystemExit(str(exc))
+y_formatter = FuncFormatter(y_fmt)
+price_formatter = FuncFormatter(price_fmt)
