@@ -45,7 +45,88 @@ bin/run_orderflow_loop.sh
 - lock: `runtime/locks/orderflow_once.lock` / `runtime/locks/orderflow_loop.lock`
 - OHLCV cache: `runtime/cache/ohlcv_cache.pkl`
 
-## 設定
+## フォルダ構造
+
+```text
+btc-orderheatmap/
+├── bin/                          # 本番実行スクリプト
+│   ├── run_orderflow_once.sh     # 1 回実行（本番推奨）
+│   ├── run_orderflow_loop.sh     # 15 分間隔定期実行（本番推奨）
+│   ├── run_orderflow_once_v327.sh  # 互換ラッパー（非推奨）
+│   ├── run_orderflow_loop_v327.sh  # 互換ラッパー（非推奨）
+│   ├── send_orderflow.sh         # Discord 送信用
+│   ├── discord_*.sh              # Discord 関連ユーティリティ
+│   └── ...
+├── scripts/
+│   └── run_plot.sh               # 描画実行ラッパー
+├── lib/
+│   └── discord_uploader.py       # Discord ファイル送信モジュール
+├── orderflow/                    # 本番エントリーポイント
+│   ├── __init__.py
+│   ├── renderer.py               # 本番エントリー（CLI）
+│   ├── version.py                # バージョン定義
+│   └── config/
+│       └── absorption_marker_config.json  # 吸収マーカー設定
+├── vendor/
+│   ├── orderflow_pack/
+│   │   ├── chartProt3_orig.py    # 元描画ライブラリ
+│   │   └── orderflow/
+│   │       ├── current_engine.py # v3.30 エントリー（エイリアス）
+│   │       ├── engine_v330.py    # 実行制御
+│   │       ├── runtime_v330.py   # 共通設定・データ処理・描画 helper
+│   │       ├── absorption_v330.py # 吸収マーカー計算
+│   │       ├── oi_v330.py        # OI データ処理・描画
+│   │       ├── plot_v330.py      # 最終チャート合成
+│   │       ├── chartProt3_ws_compat.py # 互換モジュール（使用中）
+│   │       └── absorption_marker_config.json # 設定コピー
+│   └── ...
+├── data/
+│   └── live/                     # 入力データ（live_*.jsonl）
+├── artifacts/
+│   └── orderflow_chart_latest.png # 本番出力画像
+├── logs/
+│   ├── orderflow_once.log
+│   └── orderflow_loop.log
+├── runtime/
+│   ├── cache/
+│   │   └── ohlcv_cache.pkl
+│   └── locks/
+│       ├── orderflow_once.lock
+│       └── orderflow_loop.lock
+├── legacy/                       # 旧バージョン関連（参照のみ）
+├── README.md
+└── orderflow/version.py          # バージョン定義（v3.30.0）
+```
+
+### 本番実行パス（推奨）
+```text
+bin/run_orderflow_once.sh
+  -> scripts/run_plot.sh
+  -> python3 -m orderflow.renderer
+  -> vendor/orderflow_pack/orderflow/current_engine.py
+  -> engine_v330.py
+  -> runtime_v330.py / absorption_v330.py / oi_v330.py / plot_v330.py
+  -> artifacts/orderflow_chart_latest.png
+```
+
+### 役割別モジュール（v3.30）
+| モジュール | 責務 |
+|-----------|------|
+| `engine_v330.py` | データ読み込み・集計・全体フロー制御 |
+| `runtime_v330.py` | 共通設定・価格関数・基本描画 helper（ヒートマップ・ローソク・VWAP など） |
+| `absorption_v330.py` | 吸収マーカーのスコア計算・位置決定・サイズ計算 |
+| `oi_v330.py` | OI データ読み込み・ローソク描画・背景バンド描画 |
+| `plot_v330.py` | レイアウト設定・凡例描画・最終 PNG 出力 |
+
+### 互換ラッパー（非推奨）
+- `bin/run_orderflow_once_v327.sh` → `bin/run_orderflow_once.sh`
+- `bin/run_orderflow_loop_v327.sh` → `bin/run_orderflow_loop.sh`
+- `bin/run_orderflow_once_v323a.sh` → `bin/run_orderflow_once.sh`
+- `bin/run_orderflow_loop_v323a.sh` → `bin/run_orderflow_loop.sh`
+
+旧 `chartProt3_ws_layered_v3.py` / `v322.py` / `v323.py` / `v323a.py` の 5 層 importlib 連鎖は廃止済みです。
+
+## 設定ファイル
 
 - 標準設定: `orderflow/config/absorption_marker_config.json`
 - 上書き: `ABSORPTION_CONFIG_PATH`
