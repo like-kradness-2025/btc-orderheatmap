@@ -74,22 +74,35 @@ def _round_to_tick(price: float, tick: float | None):
     return round(float(price) / tick) * tick
 
 
-def _pick_price_from_row(row, side: str, tick: float | None):
+def _pick_price_from_row(row, side: str, tick: float | None, plot_cfg: dict | None = None):
     side_candidates = {
         'buy_absorption': ['best_ask_price', 'ask_price', 'trade_price', 'price', 'last_price', 'mid_price', 'mid'],
         'sell_absorption': ['best_bid_price', 'bid_price', 'trade_price', 'price', 'last_price', 'mid_price', 'mid'],
     }
+    
+    # bps ベースのオフセット計算
+    offset_bps = 0.0
+    if plot_cfg:
+        offset_bps = float(plot_cfg.get('marker_offset_bps', 0.0))
+    
     for col in side_candidates.get(side, []):
         if col in row.index:
             val = _safe_float(row[col])
             if val is not None and val > 0:
+                # bps を割合に変換して適用（1 bps = 0.0001）
+                offset_pct = offset_bps / 10000.0
+                if side == 'buy_absorption':
+                    val = val * (1 + offset_pct)
+                else:
+                    val = val * (1 - offset_pct)
                 return _round_to_tick(val, tick)
     return None
 
 
 def _fallback_marker_price(row, side: str, plot_cfg: dict, tick: float | None):
     fallback = plot_cfg.get('marker_price_fallback', 'bar_extreme_offset')
-    offset_ratio = float(plot_cfg.get('marker_price_fallback_offset_ratio', 0.02))
+    # 両方のキー名に対応：y_offset_ratio (公式) と marker_price_fallback_offset_ratio (互換)
+    offset_ratio = float(plot_cfg.get('y_offset_ratio') or plot_cfg.get('marker_price_fallback_offset_ratio', 0.02))
     high = _safe_float(row.get('high'))
     low = _safe_float(row.get('low'))
     open_ = _safe_float(row.get('open'))
@@ -153,11 +166,14 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
     marker_price_mode = plot_cfg.get('marker_price_mode', 'quote_first')
 
     def score_to_size(score: float) -> float:
-        if score >= large_score:
-            return float(plot_cfg.get('large_size', 340.0))
-        if score >= medium_score:
-            return float(plot_cfg.get('medium_size', 120.0))
-        return float(plot_cfg.get('small_size', 80.0))
+        min_size = float(plot_cfg.get('small_size', 80.0))
+        max_size = float(plot_cfg.get('large_size', 600.0))
+        # スコアに応じて線形補間（最小スコアから最大スコアの範囲で）
+        score_range = large_score - min_score
+        if score_range <= 0:
+            return min_size
+        normalized_score = max(0.0, min(1.0, (score - min_score) / score_range))
+        return min_size + normalized_score * (max_size - min_size)
 
     markers = []
     for _, row in work.iterrows():
@@ -191,7 +207,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict):
 
         price = None
         if marker_price_mode == 'quote_first':
-            price = _pick_price_from_row(row, side, tick)
+            price = _pick_price_from_row(row, side, tick, plot_cfg)
         if price is None:
             price = _fallback_marker_price(row, side, plot_cfg, tick)
         if price is None:

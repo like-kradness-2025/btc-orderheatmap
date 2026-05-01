@@ -180,7 +180,12 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict) -> list[MarkerEv
     work['depth_bid_delta_norm'] = normalize_series(work['depth_bid_notional_5bps_delta_window'], q=norm_q, floor=norm_floor)
 
     price_range = max(float(work['high'].max() - work['low'].min()), 1.0)
-    y_offset = price_range * float(plot_cfg.get('y_offset_ratio', 0.012))
+    base_y_offset_ratio = float(plot_cfg.get('y_offset_ratio', 0.012))
+    base_y_offset = price_range * base_y_offset_ratio
+    
+    # padding for marker clearance (in price units)
+    padding_ratio = float(plot_cfg.get('y_offset_padding_ratio', 0.008))
+    padding_offset = price_range * padding_ratio
 
     min_score = float(cfg.get('minimum_score', 1.75))
     medium_score = float(cfg.get('medium_score', 2.5))
@@ -232,7 +237,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict) -> list[MarkerEv
         if buy_trigger and (not sell_trigger or buy_score >= sell_score):
             raw_events.append(MarkerEvent(
                 ts=row['ts'], side='buy_absorption', score=float(buy_score),
-                price=float(row['high']) + y_offset,
+                price=float(row['high']) + base_y_offset + padding_offset,
                 size=score_to_size(float(buy_score)),
                 color=str(plot_cfg.get('buy_color', '#3b82f6')),
                 symbol=str(plot_cfg.get('buy_marker', 'v')),
@@ -240,7 +245,7 @@ def compute_absorption_markers(bar_df: pd.DataFrame, cfg: dict) -> list[MarkerEv
         elif sell_trigger:
             raw_events.append(MarkerEvent(
                 ts=row['ts'], side='sell_absorption', score=float(sell_score),
-                price=float(row['low']) - y_offset,
+                price=float(row['low']) - base_y_offset - padding_offset,
                 size=score_to_size(float(sell_score)),
                 color=str(plot_cfg.get('sell_color', '#ef4444')),
                 symbol=str(plot_cfg.get('sell_marker', '^')),
