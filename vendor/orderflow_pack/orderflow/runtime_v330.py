@@ -32,7 +32,7 @@ DEFAULT_OHLCV_CACHE_PATH = BASE / 'orderflow' / 'ohlcv_cache.pkl'
 DEFAULT_ABSORPTION_CFG_PATH = BASE / 'orderflow' / 'absorption_marker_config.json'
 
 VERSION_LABEL = 'v3.30'
-SAVEFIG_DPI_OVERRIDE = 85
+SAVEFIG_DPI_OVERRIDE = 500
 OHLCV_CACHE_TTL_SEC = 60
 HOURS_TO_PLOT_OVERRIDE = 12
 OB_TIME_RESOLUTION_OVERRIDE = '5min'
@@ -116,8 +116,8 @@ def load_absorption_config(path: Path) -> dict:
             'marker_linewidth': 0.7,
             'small_size': 80.0,
             'large_size': 600.0,
-            'buy_marker': 'v',
-            'sell_marker': '^',
+            'buy_marker': 'o',
+            'sell_marker': 'o',
             'marker_offset_bps': 50.0,
             'y_offset_ratio': 0.012,
             'keep_strongest_per_bar': True,

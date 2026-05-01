@@ -103,7 +103,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         except Exception:
             pass
         img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=276, facecolor=fig.get_facecolor())
+        plt.savefig(img_buffer, format='png', dpi=rt.SAVEFIG_DPI_OVERRIDE, facecolor=fig.get_facecolor())
         img_buffer.seek(0)
         plt.close(fig)
         return img_buffer, bands_drawn
