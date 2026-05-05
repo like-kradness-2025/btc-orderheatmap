@@ -1,58 +1,24 @@
-# Binance Orderflow Current Minimal Pack
+# vendor/orderflow_pack
 
-¡“®‚¢‚Ä‚¢‚é receiver / plot ‚ğƒx[ƒX‚É‚µ‚½”z•z—p‚ÌÅ¬\¬‚Å‚·B
+canonical ã®å†…éƒ¨ renderer å®Ÿè£…ç½®ãå ´ã§ã™ã€‚æ—§ `chartProt3_*` renderer ã¨æ—§ `run_plot*` wrapper ã¯å‰Šé™¤æ¸ˆã¿ã§ã™ã€‚
 
-## “¯«ƒtƒ@ƒCƒ‹
-- `orderflow_monitor.mjs` - Œ»s receiver
-- `orderflow/chartProt3_ws_compat.py` - Œ»s plot ƒ‰ƒbƒp[
-- `chartProt3_orig.py` - ƒx[ƒX•`‰æƒƒWƒbƒN
-- `run_receiver.ps1` - óM‹N“®
-- `run_plot.ps1` - •`‰æÀs
-- `.env.example` - ”CˆÓ‚ÌŠÂ‹«•Ï”—Œ`
-- `README.md`
+æ­£è¦çµŒè·¯:
 
-## “¯«‚µ‚È‚¢‚à‚Ì
-- óMƒf[ƒ^
-- png / ƒƒO / ƒLƒƒƒbƒVƒ…
-- ÀŒ±—pƒXƒNƒŠƒvƒg
-- webhook À’l‚â”é–§î•ñ
-
-## •K—vŠÂ‹«
-- Node.js 20+
-- Python 3.11+
-- Python packages: `numpy pandas matplotlib aiohttp pytz requests`
-
-```powershell
-pip install numpy pandas matplotlib aiohttp pytz requests
+```text
+orderflow/renderer.py
+  -> orderflow/current_engine.py
+  -> orderflow/engine.py
 ```
 
-## Å’Zè‡
-### óM
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_receiver.ps1
-```
+ç¾å½¹ãƒ¢ã‚¸ãƒ¥ãƒ¼ãƒ«:
 
-### •`‰æ
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_plot.ps1
-```
+- `orderflow/current_engine.py` â€” stable internal alias
+- `orderflow/engine.py` â€” orchestration
+- `orderflow/data.py` â€” receiver JSONL / OHLCV cache / fallback / sanitize
+- `orderflow/chart_config.py` â€” production-safe constants and Binance OHLCV fetch
+- `orderflow/runtime.py` â€” shared calculations and base plot layers
+- `orderflow/absorption.py` â€” absorption marker logic
+- `orderflow/oi.py` â€” OI processing
+- `orderflow/plot.py` â€” final chart composition
 
-## o—Íæ
-óM:
-- `data\\live\\live_book.jsonl`
-- `data\\live\\live_book_raw.jsonl`
-- `data\\live\\live_book_bucketed.jsonl`
-- `data\\live\\live_trades.jsonl`
-- `data\\live\\live_trades_compact.jsonl`
-
-•`‰æ:
-- `tmp\\chart.png`
-
-## ƒZƒLƒ…ƒŠƒeƒB
-- `chartProt3_orig.py` “à‚Ì webhook À’l‚Í”z•z”Å‚Å‚ÍƒvƒŒ[ƒXƒzƒ‹ƒ_‰»
-- `.env.example` ‚Í—Œ`‚Ì‚İ
-- API key / secret / webhook À’l‚ÍŠÜ‚ß‚È‚¢
-
-## ’ˆÓ
-- plot ‚Í `chartProt3_ws_compat.py` Œo—R‚Å `chartProt3_orig.py` ‚ğ“Ç‚İ‚İ‚Ü‚·
-- receiver ‚Í Binance Futures BTCUSDT ‘O’ñ‚ÌÅ¬\¬‚Å‚·
+ã“ã®ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªç›´ä¸‹ã« renderer èµ·å‹• script ã¯ç½®ãã¾ã›ã‚“ã€‚shell å…¥å£ã¯ repo root ã® `run_orderflow_once.sh` / `run_orderflow_loop.sh` ã¾ãŸã¯ `bin/` / `scripts/` ã‚’ä½¿ç”¨ã—ã¾ã™ã€‚

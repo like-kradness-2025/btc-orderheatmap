@@ -1,4 +1,5 @@
-"""Version metadata for the canonical orderheatmap runtime."""
+"""Runtime metadata for the canonical orderheatmap runtime."""
 
-__version__ = "3.30.0"
-VERSION_LABEL = f"v{__version__}"
+RUNTIME_LABEL = "canonical"
+VERSION_LABEL = RUNTIME_LABEL
+__version__ = RUNTIME_LABEL

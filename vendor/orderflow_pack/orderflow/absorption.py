@@ -1,10 +1,10 @@
-"""Absorption marker aggregation, scoring, positioning, and sizing for orderheatmap v3.30."""
+"""Absorption marker aggregation, scoring, positioning, and sizing for orderheatmap canonical."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from runtime_v330 import normalize_series, _positive, _negative_abs
+from runtime import normalize_series, _positive, _negative_abs
 
 PRICE_CANDIDATE_COLS = [
     'best_ask_price',

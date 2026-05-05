@@ -4,5 +4,5 @@ WSL BTC toolset (collector/plotter separated)
 - run TPO once (generate+upload): bin/run_tpo_once.sh
 - start plotter (manual/background): bin/start_plot.sh
 - data: data/live/*.jsonl
-- artifacts: artifacts/orderflow_chart.png, artifacts/tpo.png
+- artifacts: artifacts/orderflow_chart_latest.png, artifacts/tpo.png
 - logs: logs/*.log

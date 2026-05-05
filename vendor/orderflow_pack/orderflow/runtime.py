@@ -1,4 +1,4 @@
-"""Shared runtime, config, data-loading, and base drawing helpers for orderheatmap v3.30."""
+"""Shared runtime, config, data-loading, and base drawing helpers for orderheatmap canonical."""
 from __future__ import annotations
 
 import importlib.util
@@ -17,21 +17,25 @@ import pandas as pd
 import pytz
 from matplotlib.ticker import FuncFormatter
 
-BASE = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = BASE.parents[1]
+ENGINE_DIR = Path(__file__).resolve().parent
+PACK_ROOT = ENGINE_DIR.parent
+PROJECT_ROOT = PACK_ROOT.parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(ENGINE_DIR) not in sys.path:
+    sys.path.insert(0, str(ENGINE_DIR))
 
 from lib.discord_uploader import DiscordUploadError, upload_file
+import data as data
 
-CP_PATH = BASE / 'chartProt3_orig.py'
-WS_COMPAT_PATH = BASE / 'orderflow' / 'chartProt3_ws_compat.py'
-DEFAULT_DATA_DIR = BASE / 'data/live'
-DEFAULT_OUT_PNG = BASE / 'orderflow' / 'chartProt3_ws_layered_v330.png'
-DEFAULT_OHLCV_CACHE_PATH = BASE / 'orderflow' / 'ohlcv_cache.pkl'
-DEFAULT_ABSORPTION_CFG_PATH = BASE / 'orderflow' / 'absorption_marker_config.json'
+CP_PATH = ENGINE_DIR / 'chart_config.py'
+DEFAULT_DATA_DIR = PROJECT_ROOT / 'data' / 'live'
+DEFAULT_OUT_PNG = PROJECT_ROOT / 'artifacts' / 'orderflow_chart_latest.png'
+DEFAULT_OHLCV_CACHE_PATH = PROJECT_ROOT / 'runtime' / 'cache' / 'ohlcv_cache.pkl'
+DEFAULT_ABSORPTION_CFG_PATH = PROJECT_ROOT / 'orderflow' / 'config' / 'absorption_marker_config.json'
 
-VERSION_LABEL = 'v3.30'
+RUNTIME_LABEL = 'canonical'
+VERSION_LABEL = RUNTIME_LABEL
 SAVEFIG_DPI_OVERRIDE = 500
 OHLCV_CACHE_TTL_SEC = 60
 HOURS_TO_PLOT_OVERRIDE = 12
@@ -53,8 +57,7 @@ def load_module(name: str, path: Path):
     return mod
 
 
-cp = load_module('chartProt3_orig_layered_v330_runtime', CP_PATH)
-ws = load_module('chartProt3_ws_compat_layered_v330_runtime', WS_COMPAT_PATH)
+cp = load_module('orderheatmap_chart_config', CP_PATH)
 
 def y_fmt(y, pos):
     if abs(y) >= 1e9:
@@ -79,10 +82,7 @@ price_formatter = FuncFormatter(price_fmt)
 
 
 def resolve_inputs_v3(data_dir: Path):
-    inputs = ws.resolve_inputs(data_dir)
-    inputs['feature_jsonl'] = data_dir / 'live_features_1s.jsonl'
-    inputs['oi_jsonl'] = data_dir / 'live_oi.jsonl'
-    return inputs
+    return data.resolve_inputs(data_dir)
 
 
 def load_absorption_config(path: Path) -> dict:
@@ -159,7 +159,7 @@ def _negative_abs(x):
 
 
 def load_feature_rows(feature_path: Path, start_ts: pd.Timestamp | None) -> pd.DataFrame:
-    rows = ws.read_jsonl_recent_until(feature_path, start_ts, chunk_bytes=16 * 1024 * 1024, max_bytes=256 * 1024 * 1024)
+    rows = data.read_jsonl_recent_until(feature_path, start_ts, chunk_bytes=16 * 1024 * 1024, max_bytes=256 * 1024 * 1024)
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -193,7 +193,7 @@ def compute_plot_window(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame
 
 
 def compute_center_price(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame) -> float:
-    if not ohlc_data.empty and 'close' in ohlc_data.columns:
+    if ohlc_data is not None and not ohlc_data.empty and 'close' in ohlc_data.columns:
         vals = ohlc_data['close'].dropna().tolist()
         if vals:
             return float(vals[-1])
@@ -383,13 +383,30 @@ def draw_vwap_layer(ax_main_price, ohlc_df: pd.DataFrame, cp_mod):
 
 
 def draw_absorption_marker_layer(ax_main_price, markers, cfg):
+    if markers is None:
+        return
+    if isinstance(markers, pd.DataFrame):
+        if markers.empty:
+            return
+        iterator = (row for _, row in markers.iterrows())
+    else:
+        if len(markers) == 0:
+            return
+        iterator = iter(markers)
+
     plot_cfg = cfg.get('plot', {})
     edge = plot_cfg.get('edge_color', '#ffffff')
     alpha = float(plot_cfg.get('alpha', 0.95))
     lw = float(plot_cfg.get('marker_linewidth', 0.7))
-    for ev in markers:
-        x = mdates.date2num(pd.Timestamp(ev['ts']).to_pydatetime())
-        ax_main_price.scatter([x], [ev['price']], s=ev['size'], marker=ev['symbol'], color=ev['color'], edgecolors=edge, linewidths=lw, alpha=alpha, zorder=6)
+    for ev in iterator:
+        try:
+            ts = pd.Timestamp(ev['ts'])
+            price = float(ev['price'])
+            size = float(ev.get('size', plot_cfg.get('small_size', 80.0)))
+            x = mdates.date2num(ts.to_pydatetime())
+            ax_main_price.scatter([x], [price], s=size, marker=ev.get('symbol', 'o'), color=ev.get('color', plot_cfg.get('buy_color', '#3b82f6')), edgecolors=edge, linewidths=lw, alpha=alpha, zorder=6)
+        except Exception:
+            continue
 
 
 def draw_orderbook_bar_layer(ax_ob_bars, book_df: pd.DataFrame, price_min: float, price_max: float, cp_mod):

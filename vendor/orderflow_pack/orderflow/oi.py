@@ -1,4 +1,4 @@
-"""Open-interest loading, aggregation, and OI subplot helpers for orderheatmap v3.30."""
+"""Open-interest loading, aggregation, and OI subplot helpers for orderheatmap canonical."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +7,7 @@ import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 
-from runtime_v330 import ws
+from runtime import data
 
 def _safe_float(v):
     try:
@@ -19,7 +19,7 @@ def _safe_float(v):
     return None
 
 def load_oi_rows(oi_path: Path, start_ts: pd.Timestamp | None) -> pd.DataFrame:
-    rows = ws.read_jsonl_recent_until(oi_path, start_ts, chunk_bytes=8 * 1024 * 1024, max_bytes=128 * 1024 * 1024)
+    rows = data.read_jsonl_recent_until(oi_path, start_ts, chunk_bytes=8 * 1024 * 1024, max_bytes=128 * 1024 * 1024)
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)

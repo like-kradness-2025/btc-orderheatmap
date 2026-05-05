@@ -1,203 +1,75 @@
 # BTC Orderheatmap
 
-BTC の orderflow / heatmap 生成専用リポジトリ。
+BTC の orderflow / heatmap 生成専用リポジトリです。canonical では、旧 renderer・旧 wrapper・重複 config を削除し、実行経路を一本化しています。
 
-## 現行推奨: v3.30.0
+## 現行ランタイム
 
-v3.30 は 5S 整理を進めた役割別分割版です。新規運用では、ファイル名にバージョンが入った入口を使わず、固定名入口だけを使います。
+- 推奨: `canonical`
+- ランタイム定義: `orderflow/version.py`
+- 本番出力: `artifacts/orderflow_chart_latest.png`
+- 既定の描画時間: `24h`
+- ルート wrapper / `scripts/run_plot.sh` / `orderflow.renderer` / `engine.py` はすべて 24h を既定にしています。
+
+## 24h 運用の考え方
+
+このリポジトリは、**24h の長めの窓で orderflow / heatmap / OI / absorption をまとめて確認する**前提で運用します。
+
+- 24h を基準にしておくと、吸収マーカーと OI の文脈が追いやすい
+- 15 分ループで更新しても、表示窓は 24h のまま安定する
+- 必要がある場合だけ `--hours` で短くできますが、通常運用は 24h を推奨します
+
+## 正規実行入口
+
+1 回実行:
 
 ```bash
+./run_orderflow_once.sh
+# または
 ./bin/run_orderflow_once.sh
 ```
 
+15 分間隔ループ:
+
 ```bash
+./run_orderflow_loop.sh
+# または
 ./bin/run_orderflow_loop.sh
 ```
 
-## 本番経路
+`run_orderflow_once.sh` / `run_orderflow_loop.sh` は運用向けのルート入口で、即座に `bin/` の正規 wrapper へ `exec` します。旧 renderer へ分岐する経路はありません。
+
+## 本番実行経路
 
 ```text
-bin/run_orderflow_once.sh
-  -> scripts/run_plot.sh
-  -> python3 -m orderflow.renderer
-  -> artifacts/orderflow_chart_latest.png
-```
-
-ループ実行は 15 分ごとに `bin/run_orderflow_once.sh` を呼びます。
-
-```text
-bin/run_orderflow_loop.sh
+run_orderflow_once.sh
   -> bin/run_orderflow_once.sh
-```
-
-## 入力データ
-
-- デフォルト: `data/live`
-- 上書き: `BTC_LIVE_DATA_DIR`
-- `live_*.jsonl` が空なら失敗します
-- `live_features_1s.jsonl` があれば吸収マーカーに使います
-- `live_oi.jsonl` があれば OI サブプロットに使います
-
-## 出力
-
-- 本番出力: `artifacts/orderflow_chart_latest.png`
-- ログ: `logs/orderflow_once.log` / `logs/orderflow_loop.log`
-- lock: `runtime/locks/orderflow_once.lock` / `runtime/locks/orderflow_loop.lock`
-- OHLCV cache: `runtime/cache/ohlcv_cache.pkl`
-
-## フォルダ構造
-
-```text
-btc-orderheatmap/
-├── bin/                          # 本番実行スクリプト
-│   ├── run_orderflow_once.sh     # 1 回実行（本番推奨）
-│   ├── run_orderflow_loop.sh     # 15 分間隔定期実行（本番推奨）
-│   ├── run_orderflow_once_v327.sh  # 互換ラッパー（非推奨）
-│   ├── run_orderflow_loop_v327.sh  # 互換ラッパー（非推奨）
-│   ├── send_orderflow.sh         # Discord 送信用
-│   ├── discord_*.sh              # Discord 関連ユーティリティ
-│   └── ...
-├── scripts/
-│   └── run_plot.sh               # 描画実行ラッパー
-├── lib/
-│   └── discord_uploader.py       # Discord ファイル送信モジュール
-├── orderflow/                    # 本番エントリーポイント
-│   ├── __init__.py
-│   ├── renderer.py               # 本番エントリー（CLI）
-│   ├── version.py                # バージョン定義
-│   └── config/
-│       └── absorption_marker_config.json  # 吸収マーカー設定
-├── vendor/
-│   ├── orderflow_pack/
-│   │   ├── chartProt3_orig.py    # 元描画ライブラリ
-│   │   └── orderflow/
-│   │       ├── current_engine.py # v3.30 エントリー（エイリアス）
-│   │       ├── engine_v330.py    # 実行制御
-│   │       ├── runtime_v330.py   # 共通設定・データ処理・描画 helper
-│   │       ├── absorption_v330.py # 吸収マーカー計算
-│   │       ├── oi_v330.py        # OI データ処理・描画
-│   │       ├── plot_v330.py      # 最終チャート合成
-│   │       ├── chartProt3_ws_compat.py # 互換モジュール（使用中）
-│   │       └── absorption_marker_config.json # 設定コピー
-│   └── ...
-├── data/
-│   └── live/                     # 入力データ（live_*.jsonl）
-├── artifacts/
-│   └── orderflow_chart_latest.png # 本番出力画像
-├── logs/
-│   ├── orderflow_once.log
-│   └── orderflow_loop.log
-├── runtime/
-│   ├── cache/
-│   │   └── ohlcv_cache.pkl
-│   └── locks/
-│       ├── orderflow_once.lock
-│       └── orderflow_loop.lock
-├── legacy/                       # 旧バージョン関連（参照のみ）
-├── README.md
-└── orderflow/version.py          # バージョン定義（v3.30.0）
-```
-
-### 本番実行パス（推奨）
-```text
-bin/run_orderflow_once.sh
   -> scripts/run_plot.sh
   -> python3 -m orderflow.renderer
+  -> orderflow/renderer.py
   -> vendor/orderflow_pack/orderflow/current_engine.py
-  -> engine_v330.py
-  -> runtime_v330.py / absorption_v330.py / oi_v330.py / plot_v330.py
+  -> vendor/orderflow_pack/orderflow/engine.py
+  -> vendor/orderflow_pack/orderflow/data.py
+  -> vendor/orderflow_pack/orderflow/runtime.py
+  -> vendor/orderflow_pack/orderflow/absorption.py
+  -> vendor/orderflow_pack/orderflow/oi.py
+  -> vendor/orderflow_pack/orderflow/plot.py
   -> artifacts/orderflow_chart_latest.png
 ```
 
-### 役割別モジュール（v3.30）
-| モジュール | 責務 |
-|-----------|------|
-| `engine_v330.py` | データ読み込み・集計・全体フロー制御 |
-| `runtime_v330.py` | 共通設定・価格関数・基本描画 helper（ヒートマップ・ローソク・VWAP など） |
-| `absorption_v330.py` | 吸収マーカーのスコア計算・位置決定・サイズ計算 |
-| `oi_v330.py` | OI データ読み込み・ローソク描画・背景バンド描画 |
-| `plot_v330.py` | レイアウト設定・凡例描画・最終 PNG 出力 |
+ループ実行は `bin/run_orderflow_loop.sh` が 900 秒ごとに同じ `bin/run_orderflow_once.sh` を呼びます。
 
-### 互換ラッパー（非推奨）
-- `bin/run_orderflow_once_v327.sh` → `bin/run_orderflow_once.sh`
-- `bin/run_orderflow_loop_v327.sh` → `bin/run_orderflow_loop.sh`
-- `bin/run_orderflow_once_v323a.sh` → `bin/run_orderflow_once.sh`
-- `bin/run_orderflow_loop_v323a.sh` → `bin/run_orderflow_loop.sh`
+## CLI
 
-旧 `chartProt3_ws_layered_v3.py` / `v322.py` / `v323.py` / `v323a.py` の 5 層 importlib 連鎖は廃止済みです。
-
-## 設定ファイル
-
-- 標準設定: `orderflow/config/absorption_marker_config.json`
-- 上書き: `ABSORPTION_CONFIG_PATH`
-- Discord channel: `DISCORD_CHANNEL_ID`
-- `DISCORD_CHANNEL_ID` が未指定の場合は既存 channel id を fallback として使います
-
-## 吸収マーカー設定 (v3.30)
-
-### マーカー表示
-- **形状**: `buy_marker`: `o`、`sell_marker`: `o`（丸）
-- **サイズ**: スコアに応じて連続変化（最小 80、最大 600）
-- **スコア範囲**: 1.75（最小）〜 3.6（最大）
-
-### マーカーオフセット
-- **計算方式**: bps ベース（ベース価格 × (1 ± offset_bps/10000)）
-- **設定**: `marker_offset_bps: 50.0`（0.5%）
-- **Buy 마커**: 板価格 × 1.005
-- **Sell 마커**: 板価格 × 0.995
-
-### スコア計算要素
-- 取引インバランス（Trade Imbalance）
-- Ask/Bid 補充量（Replenishment）
-- 最良 Ask/Bid 数量変化
-- Ask/Bid depth 変化
-- 価格動き（Mid-move）
-
-## 解像度設定 (v3.30)
-
-- **DPI**: 500 (`SAVEFIG_DPI_OVERRIDE`)
-- **画像寸法**: 11250 x 7280 ピクセル
-- **ファイルサイズ**: 約 1.4MB（24 時間データ）
-- **Discord プレビュー**: 優先設定（巨大寸法を回避）
-- **制限**: Discord 10MB 限度に余裕あり
-
-## バージョン方針
-
-- 本番ファイル名には `v327` / `v328` / `v323a` などを入れません
-- バージョンは `orderflow/version.py` に一元化します
-- 実行ログと CLI 出力で `v3.30.0` を確認します
-
-## 互換入口
-
-以下は互換ラッパーです。新規運用では使わないでください。
-
-- `bin/run_orderflow_once_v327.sh` -> `bin/run_orderflow_once.sh`
-- `bin/run_orderflow_loop_v327.sh` -> `bin/run_orderflow_loop.sh`
-
-## モジュール構造 (v3.30)
-
-v3.30 では描画エンジンを役割別モジュールへ分割しました。
-
-```text
-vendor/orderflow_pack/orderflow/current_engine.py
-  -> engine_v330.py        # 実行制御
-  -> runtime_v330.py       # 共通設定・データ helper・基本描画 helper
-  -> absorption_v330.py    # 吸収マーカー計算
-  -> oi_v330.py            # OI 読み込み・集計・背景バンド
-  -> plot_v330.py          # 最終チャート合成
+```bash
+./bin/run_orderflow_once.sh \
+  --data-dir data/live \
+  --out artifacts/orderflow_chart_latest.png \
+  --hours 24 \
+  --absorption-config orderflow/config/absorption_marker_config.json \
+  --no-discord
 ```
 
-### 役割ごとの責務
-
-- **engine_v330.py**: データ読み込み・集計・全体フロー制御
-- **runtime_v330.py**: 共通設定・価格関数・基本描画 helper
-- **absorption_v330.py**: 吸収マーカーのスコア計算・位置決定
-- **oi_v330.py**: OI データ読み込み・ローソク描画・背景バンド描画
-- **plot_v330.py**: レイアウト・凡例・最終 PNG 出力
-
-旧 `chartProt3_ws_layered_v3.py` / `v322.py` / `v323.py` / `v323a.py` の importlib 連鎖は廃止済みです。
-
-## 直接実行例
+低レイヤーを直接確認する場合:
 
 ```bash
 scripts/run_plot.sh data/live artifacts/orderflow_chart_latest.png 24 orderflow/config/absorption_marker_config.json
@@ -208,57 +80,183 @@ python3 -m orderflow.renderer \
   --hours 24 \
   --data-dir data/live \
   --out artifacts/orderflow_chart_latest.png \
-  --absorption-config orderflow/config/absorption_marker_config.json
+  --ohlcv-cache runtime/cache/ohlcv_cache.pkl \
+  --absorption-config orderflow/config/absorption_marker_config.json \
+  --discord-channel-id ''
+```
+
+`current_engine.py` も直接実行できます。
+
+```bash
+python3 vendor/orderflow_pack/orderflow/current_engine.py --hours 24 --data-dir data/live --out artifacts/current_engine_test.png --discord-channel-id ''
+```
+
+## 入力データ
+
+- デフォルト: `data/live`
+- 上書き: `BTC_LIVE_DATA_DIR` または `--data-dir`
+- 対応ファイル:
+  - `live_book.jsonl`
+  - `live_book_raw.jsonl`
+  - `live_book_bucketed.jsonl`
+  - `live_trades.jsonl`
+  - `live_trades_compact.jsonl`
+  - `live_features_1s.jsonl`
+  - `live_oi.jsonl`
+- `live_features_1s.jsonl` があれば吸収マーカーに使います。
+- `live_oi.jsonl` があれば OI サブプロットに使います。
+- OHLCV は cache を読み、Binance API の差分をマージして 1 つの cache に更新します。API が使えない場合のみ local trades から算出します。
+
+### ローカル Receiver を使う場合
+
+ホーム側の Receiver データを使うなら、`data/live` に置くか、`BTC_LIVE_DATA_DIR` で明示します。
+
+```bash
+export BTC_LIVE_DATA_DIR=/home/weed420/btc-receiver/data/live
+./bin/run_orderflow_once.sh --no-discord
+```
+
+確認ポイント:
+
+- `data/live/live_book.jsonl` が更新されていること
+- `data/live/live_trades*.jsonl` が更新されていること
+- `logs/orderflow_once.log` に `runtime=canonical` と `hours=24` が出ること
+- `ohlcv_source=cache+binance_api` または `ohlcv_source=local_trades` が出ること
+
+## 出力・実行状態
+
+- 画像: `artifacts/orderflow_chart_latest.png`
+- 1 回実行ログ: `logs/orderflow_once.log`
+- ループ実行ログ: `logs/orderflow_loop.log`
+- 起動ログ: `logs/plot.log`
+- lock: `runtime/locks/orderflow_once.lock` / `runtime/locks/orderflow_loop.lock`
+- OHLCV cache: `runtime/cache/ohlcv_cache.pkl`
+
+## フォルダ構造
+
+```text
+btc-orderheatmap/
+├── run_orderflow_once.sh          # ルート入口。bin/run_orderflow_once.sh へ exec
+├── run_orderflow_loop.sh          # ルート入口。bin/run_orderflow_loop.sh へ exec
+├── bin/
+│   ├── run_orderflow_once.sh      # 本番 1 回実行 wrapper
+│   ├── run_orderflow_loop.sh      # 本番 15 分ループ wrapper
+│   ├── start_plot.sh              # loop を nohup 起動
+│   └── report_runtime_status.sh   # 運用状態レポート
+├── scripts/
+│   └── run_plot.sh                # renderer CLI 呼び出し wrapper
+├── orderflow/
+│   ├── renderer.py                # stable public CLI
+│   ├── version.py
+│   └── config/
+│       └── absorption_marker_config.json
+├── vendor/orderflow_pack/orderflow/
+│   ├── current_engine.py          # stable internal alias
+│   ├── engine.py             # orchestration
+│   ├── data.py               # JSONL / OHLCV / cache / fallback
+│   ├── chart_config.py       # production-safe constants + Binance OHLCV fetch
+│   ├── runtime.py            # shared calculations and base plot layers
+│   ├── absorption.py         # absorption marker scoring / sizing / positioning
+│   ├── oi.py                 # OI loading and subplot rendering
+│   └── plot.py               # final layout and PNG composition
+├── lib/
+│   └── discord_uploader.py
+├── data/live/
+├── artifacts/
+├── logs/
+└── runtime/
+    ├── cache/
+    └── locks/
+```
+
+## 削除済みの旧経路
+
+以下は canonical の正規経路から完全に外し、リポジトリから削除済みです。
+
+- root の旧 `chartProt3_*` ファイル
+- `vendor/orderflow_pack/chartProt3_orig.py`
+- `vendor/orderflow_pack/orderflow/chartProt3_ws_compat.py`
+- `vendor/orderflow_pack/run_plot.sh`
+- `vendor/orderflow_pack/run_plot_v2.sh`
+- `vendor/orderflow_pack/run_plot.ps1`
+- `bin/run_orderflow_once_v2.sh`
+- `bin/run_orderflow_once_v323a.sh`
+- `bin/run_orderflow_loop_v323a.sh`
+- `bin/run_orderflow_loop_v327.sh`
+- `bin/send_orderflow.sh`
+- `vendor/orderflow_pack/orderflow/absorption_marker_config.json`
+- `legacy/` の旧経路メモ
+
+## 役割別モジュール
+
+| モジュール | 責務 |
+|---|---|
+| `engine.py` | データ取得順序、集計、描画、Discord upload の全体制御 |
+| `data.py` | receiver JSONL 読み込み、trade 集計、OHLCV cache merge、local trades fallback、OHLCV sanitize |
+| `chart_config.py` | 描画定数と Binance OHLCV API fetch。import 時のログ/ファイル副作用なし |
+| `runtime.py` | 価格範囲、時間窓、heatmap/candle/VWAP/orderbook bar の基本描画 helper |
+| `absorption.py` | 吸収マーカーのスコア計算・位置決定・サイズ計算 |
+| `oi.py` | OI JSONL 読み込み・OHLC 化・背景バンド描画 |
+| `plot.py` | GridSpec、凡例、タイトル、最終 PNG 合成 |
+
+## 設定
+
+- 吸収マーカー設定: `orderflow/config/absorption_marker_config.json`
+- 上書き: `ABSORPTION_CONFIG_PATH` または `--absorption-config`
+- Discord channel: `DISCORD_CHANNEL_ID` または `--discord-channel-id`
+- Discord 送信なし: `--no-discord` または `--discord-channel-id ''`
+- ループ間隔: `ORDERFLOW_LOOP_INTERVAL_SEC`（デフォルト 900）
+- 描画時間: `ORDERFLOW_HOURS` または `--hours`
+
+## 吸収マーカー設定 canonical
+
+- 形状: `buy_marker: o` / `sell_marker: o`
+- サイズ: スコアに応じた連続変化
+- オフセット: `marker_offset_bps: 50.0`
+- 計算方式: 板価格 × `(1 ± offset_bps / 10000)`
+
+## 解像度設定
+
+- `runtime.py` の `SAVEFIG_DPI_OVERRIDE` を使用
+- canonical の現行値: `500`
+- `figsize` / GridSpec / アスペクト比は、明示的なレイアウト変更方針なしに変更しません。
+
+## 検証コマンド
+
+```bash
+git status --short --branch
+python3 -m compileall -q orderflow vendor/orderflow_pack/orderflow lib
+python3 -m orderflow.renderer --data-dir /tmp/btc-empty-live --out artifacts/review_test.png --ohlcv-cache runtime/cache/review_ohlcv.pkl --hours 1 --absorption-config orderflow/config/absorption_marker_config.json --discord-channel-id ''
+./bin/run_orderflow_once.sh --data-dir /tmp/btc-empty-live --out artifacts/wrapper_test.png --hours 1 --no-discord
+python3 vendor/orderflow_pack/orderflow/current_engine.py --data-dir /tmp/btc-empty-live --out artifacts/current_engine_direct.png --ohlcv-cache runtime/cache/current_engine_direct.pkl --hours 24 --absorption-config orderflow/config/absorption_marker_config.json --discord-channel-id ''
+```
+
+実データを使う確認をしたい場合:
+
+```bash
+BTC_LIVE_DATA_DIR=/home/weed420/btc-receiver/data/live ./bin/run_orderflow_once.sh --no-discord
+tail -50 logs/orderflow_once.log
 ```
 
 ## トラブルシューティング
 
 ### 生成失敗
-- ログ確認: `tail -50 logs/orderflow_once.log`
-- データ整合性: `wc -l data/live_*.jsonl`
-- Python 構文: `python3 -m py_compile vendor/orderflow_pack/orderflow/*.py`
 
-### マーカー表示されない
-- `live_features_1s.jsonl` があるか確認
-- `absorption_marker_config.json` の `enabled: true` 確認
-- `minimum_score` など閾値設定の確認
+```bash
+tail -50 logs/orderflow_once.log
+python3 -m compileall -q orderflow vendor/orderflow_pack/orderflow lib
+```
+
+### 画像が生成されるが live 情報が薄い
+
+- `data/live/live_book*.jsonl` と `data/live/live_trades*.jsonl` の更新を確認
+- OHLCV だけなら Binance API fallback で描画できますが、板・約定・吸収マーカーは receiver データに依存します。
 
 ### Discord 送信失敗
+
 - `DISCORD_CHANNEL_ID` が正しいか確認
-- Bot 権限（Attachments）の確認
+- Bot の Attachments 権限を確認
 - ファイルサイズが 10MB を超えていないか確認
-
-### 画像が粗すぎる
-- `SAVEFIG_DPI_OVERRIDE` 値を上げる（推奨範囲: 300〜600）
-- figsize / GridSpec の余白設定を微調整（プレビュー崩れに注意）
-
-## v3.30 主な変更点
-
-- 吸収マーカーのオフセット計算を bps ベースに統一
-- マーカーサイズをスコアに応じた連続変化に（3 段階固定 ⇒ 無段階）
-- 解像度を 500 DPI に引き上げ（ディスク容量と画質のバランス）
-- 未使用ファイル削除（`absorption_overlay_v2.py`, `chartProt3_ws_compat_v2.py`, `chartProt3_ws_layered_v327.py`）
-- 未使用 config キー削除（`medium_size`）
-- 描画エンジンを役割別モジュールへ再分割
-- マーカー形状を ●（circle）に統一
-
-## 開発者向け情報
-
-### dependencies
-- `matplotlib` >= 3.8
-- `pandas` >= 2.0
-- `numpy` >= 1.24
-- `aiohttp` >= 3.9
-
-### 変更前後の対応
-- 旧 `chartProt3_ws_compat.py` は未使用に近いため削除対象
-- 旧 5 層 importlib 連鎖は復活させない
-
-### リファクタ時の注意
-- バージョン番号ベースの wrapper 連鎖を復活させない
-- 「1 ファイルに巨大統合」ではなく、役割別に分割して責務を明確化
-- 変更後は `py_compile` と `scripts/run_plot.sh` の両方を通す
-- `tight_layout` warning は既知。exit 0 で画像生成できていればブロッカーではない
 
 ## GitHub
 

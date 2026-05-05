@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-PACK="$ROOT/vendor/orderflow_pack"
-BOARD_CHANNEL_ID="1480537635721314446"
+BOARD_CHANNEL_ID="${DISCORD_CHANNEL_ID:-1480537635721314446}"
+
 choose_data_dir() {
   local receiver_dir="${BTC_LIVE_DATA_DIR:-$ROOT/../btc-receiver/data/live}"
   if [ ! -d "$receiver_dir" ]; then
@@ -15,9 +15,11 @@ choose_data_dir() {
   fi
   printf '%s\n' "$receiver_dir"
 }
+
 DATA_DIR=$(choose_data_dir)
-mkdir -p "$ROOT/artifacts" "$ROOT/logs" "$ROOT/runtime/pids"
-nohup "$PACK/run_plot.sh" "$DATA_DIR" "$ROOT/artifacts/orderflow_chart.png" 8 "$BOARD_CHANNEL_ID" "" > "$ROOT/logs/plot.log" 2>&1 &
+mkdir -p "$ROOT/logs" "$ROOT/runtime/pids"
+BTC_LIVE_DATA_DIR="$DATA_DIR" DISCORD_CHANNEL_ID="$BOARD_CHANNEL_ID" \
+  nohup "$ROOT/bin/run_orderflow_loop.sh" > "$ROOT/logs/plot.log" 2>&1 &
 PID=$!
-echo $PID > "$ROOT/runtime/pids/plot.pid"
-echo "plot pid=$PID"
+echo "$PID" > "$ROOT/runtime/pids/plot.pid"
+echo "plot loop pid=$PID"

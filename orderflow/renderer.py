@@ -1,6 +1,6 @@
 """Canonical CLI entrypoint for BTC orderheatmap.
 
-This module is the stable, versionless runtime surface. The v3.30 engine is
+This module is the stable, versionless runtime surface. The canonical engine is
 hidden behind a stable internal engine alias while keeping existing chart
 behavior intact.
 """
@@ -12,7 +12,7 @@ import asyncio
 import importlib.util
 from pathlib import Path
 
-from .version import VERSION_LABEL
+from .version import RUNTIME_LABEL
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE_ALIAS_PATH = ROOT / "vendor" / "orderflow_pack" / "orderflow" / "current_engine.py"
@@ -53,7 +53,7 @@ async def run_once(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=f"BTC orderheatmap renderer {VERSION_LABEL}")
+    parser = argparse.ArgumentParser(description=f"BTC orderheatmap renderer {RUNTIME_LABEL}")
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
     parser.add_argument("--out", default=str(DEFAULT_OUT_PNG))
     parser.add_argument("--ohlcv-cache", default=str(DEFAULT_OHLCV_CACHE_PATH))
@@ -78,7 +78,7 @@ def main() -> None:
                 args.discord_message,
             )
         )
-        print(f"OK canonical_orderheatmap_version={VERSION_LABEL}")
+        print(f"OK canonical_orderheatmap_runtime={RUNTIME_LABEL}")
     except Exception as exc:
         raise SystemExit(str(exc))
 

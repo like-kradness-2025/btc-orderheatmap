@@ -1,11 +1,11 @@
-"""Canonical v3.30 engine: orchestration only.
+"""Canonical canonical engine: orchestration only.
 
-This module replaces the historical v3 -> v322 -> v323 -> v323a import chain
+This module replaces the historical multi-version import chain
 with role-based modules:
-- runtime_v330: shared config, data helpers, base drawing helpers
-- absorption_v330: absorption marker aggregation/scoring/positioning
-- oi_v330: open-interest loading/aggregation
-- plot_v330: final chart composition
+- runtime: shared config, data helpers, base drawing helpers
+- absorption: absorption marker aggregation/scoring/positioning
+- oi: open-interest loading/aggregation
+- plot: final chart composition
 """
 from __future__ import annotations
 
@@ -17,16 +17,16 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytz
 
-import runtime_v330 as base
-from absorption_v330 import aggregate_feature_bars, compute_absorption_markers
-from oi_v330 import build_oi_ohlc, load_oi_rows
-from plot_v330 import render_layered_chart
+import runtime as base
+from absorption import aggregate_feature_bars, compute_absorption_markers
+from oi import build_oi_ohlc, load_oi_rows
+from plot import render_layered_chart
 
-VERSION_LABEL = 'v3.30'
+RUNTIME_LABEL = 'canonical'
 
 
 async def run_once(
-    hours_to_plot: int = 12,
+    hours_to_plot: int = 24,
     data_dir: Path | None = None,
     out_png: Path | None = None,
     ohlcv_cache_path: Path | None = None,
@@ -59,19 +59,48 @@ async def run_once(
     now_utc = pd.Timestamp.now(tz=pytz.utc)
 
     inputs = base.resolve_inputs_v3(data_dir)
-    book_df = base.ws.load_book_data_with_stats_ws(market, base.cp.HOURS_TO_PLOT, inputs)
-    agg_df = base.ws.load_aggregated_trade_data_ws(market, base.cp.HOURS_TO_PLOT, inputs)
+    book_df = base.data.load_book_data_with_stats_ws(market, base.cp.HOURS_TO_PLOT, inputs)
+    agg_df = base.data.load_aggregated_trade_data_ws(market, base.cp.HOURS_TO_PLOT, inputs)
 
     ohlcv_start = now_utc - pd.Timedelta(hours=base.cp.HOURS_TO_PLOT + 1)
-    ohlcv_df = base.ws.load_ohlcv_cache(ohlcv_cache_path, base.OHLCV_CACHE_TTL_SEC)
-    ohlcv_cache_hit = ohlcv_df is not None
-    if ohlcv_df is None:
+    interval_delta = pd.Timedelta(minutes=base.cp.OHLCV_API_INTERVAL_MINUTES)
+
+    cached_ohlcv = base.data.load_ohlcv_cache(ohlcv_cache_path, None)
+    api_start = ohlcv_start
+    if cached_ohlcv is not None and not cached_ohlcv.empty:
+        cached_end = cached_ohlcv.index.max()
+        if pd.notna(cached_end) and cached_end >= ohlcv_start:
+            # Re-fetch the last cached candle too; it may have been incomplete when cached.
+            api_start = max(ohlcv_start, cached_end - interval_delta)
+
+    api_ohlcv = pd.DataFrame()
+    if api_start <= now_utc:
         async with base.aiohttp.ClientSession() as session:
-            ohlcv_df = await base.cp.fetch_binance_ohlcv_from_api(
-                session, market, base.cp.FUTURES_SYMBOL_API, base.cp.OHLCV_API_INTERVAL, ohlcv_start, now_utc
+            api_ohlcv = await base.cp.fetch_binance_ohlcv_from_api(
+                session, market, base.cp.FUTURES_SYMBOL_API, base.cp.OHLCV_API_INTERVAL, api_start, now_utc
             )
+
+    ohlcv_df = base.data.merge_ohlcv_frames(cached_ohlcv, api_ohlcv)
+    if not ohlcv_df.empty:
+        if cached_ohlcv is not None and not cached_ohlcv.empty and api_ohlcv is not None and not api_ohlcv.empty:
+            ohlcv_source = 'cache+binance_api'
+        elif api_ohlcv is not None and not api_ohlcv.empty:
+            ohlcv_source = 'binance_api'
+        else:
+            ohlcv_source = 'cache'
+        base.data.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
+    else:
+        ohlcv_source = 'none'
+
+    if ohlcv_df is None or ohlcv_df.empty:
+        ohlcv_df = base.data.generate_ohlcv_from_trades(inputs, base.cp.HOURS_TO_PLOT + 1, cfg.get('bar_interval', '5min'))
         if isinstance(ohlcv_df, pd.DataFrame) and not ohlcv_df.empty:
-            base.ws.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
+            ohlcv_source = 'local_trades'
+            base.data.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
+
+    ohlcv_df = base.data.sanitize_ohlcv(ohlcv_df)
+    if ohlcv_df.empty:
+        raise RuntimeError('OHLCV unavailable after cache+API/local-trades fallback')
 
     if not ohlcv_df.empty and 'volume' in ohlcv_df.columns and base.cp.VOLUME_EMA_HOURS > 0:
         interval_seconds = base.cp.OHLCV_API_INTERVAL_MINUTES * 60
@@ -94,25 +123,25 @@ async def run_once(
         f.write(img.getvalue())
 
     print(
-        f"OK version={VERSION_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, "
+        f"OK runtime={RUNTIME_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, "
         f"ohlcv={len(ohlcv_df)}, oi={len(oi_df)}, features={len(feature_df)}) markers={len(markers)} "
-        f"bands={bands_drawn} hours={base.cp.HOURS_TO_PLOT} ohlcv_cache_hit={ohlcv_cache_hit}"
+        f"bands={bands_drawn} hours={base.cp.HOURS_TO_PLOT} ohlcv_source={ohlcv_source}"
     )
 
     if discord_channel_id:
         base.upload_output_if_needed(out_png, discord_channel_id, discord_message)
 
 
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser(description='Orderheatmap v3.30 role-based renderer engine')
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description='Orderheatmap canonical role-based renderer engine')
     ap.add_argument('--data-dir', default=str(base.DEFAULT_DATA_DIR))
     ap.add_argument('--out', default=str(base.DEFAULT_OUT_PNG))
     ap.add_argument('--ohlcv-cache', default=str(base.DEFAULT_OHLCV_CACHE_PATH))
-    ap.add_argument('--hours', type=int, default=12)
+    ap.add_argument('--hours', type=int, default=24)
     ap.add_argument('--absorption-config', default=str(base.DEFAULT_ABSORPTION_CFG_PATH))
     ap.add_argument('--discord-channel-id', default='')
     ap.add_argument('--discord-message', default='')
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     try:
         asyncio.run(
             run_once(
@@ -129,3 +158,8 @@ if __name__ == '__main__':
         raise SystemExit(f'Discord upload failed: {exc}')
     except Exception as exc:
         raise SystemExit(str(exc))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

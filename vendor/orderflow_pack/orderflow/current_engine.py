@@ -8,6 +8,10 @@ ENGINE_DIR = Path(__file__).resolve().parent
 if str(ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(ENGINE_DIR))
 
-from engine_v330 import base, run_once
+from engine import base, main, run_once
 
-__all__ = ["base", "run_once"]
+__all__ = ["base", "main", "run_once"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

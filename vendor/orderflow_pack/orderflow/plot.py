@@ -1,4 +1,4 @@
-"""Chart composition and final rendering for orderheatmap v3.30."""
+"""Chart composition and final rendering for orderheatmap canonical."""
 from __future__ import annotations
 
 import io
@@ -11,10 +11,10 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
-import runtime_v330 as rt
-from oi_v330 import draw_oi_candle_layer, draw_oi_delta_background
+import runtime as rt
+from oi import draw_oi_candle_layer, draw_oi_delta_background
 
-VERSION_LABEL = 'v3.30'
+RUNTIME_LABEL = 'canonical'
 JST = rt.JST
 
 def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> tuple[io.BytesIO, int]:
@@ -85,7 +85,8 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             ax_oi.text(0.995, 0.92, f"OI {rt.y_fmt(float(latest_oi['close']), None)}", transform=ax_oi.transAxes, ha='right', va='top', color=oi_color, fontsize=rt.cp.TICK_LABEL_FONTSIZE + 1)
 
         main_handles, main_labels = ax_main_price.get_legend_handles_labels()
-        if markers:
+        marker_count = len(markers) if markers is not None else 0
+        if marker_count > 0:
             main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('buy_marker', 'o'), color='none', label='Buy absorption', markerfacecolor=cfg['plot'].get('buy_color', '#3b82f6'), markeredgecolor='white', markersize=8))
             main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', 'o'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
             main_labels.extend(['Buy absorption', 'Sell absorption'])
@@ -93,7 +94,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=rt.cp.LEGEND_FONTSIZE, loc='upper left', bbox_to_anchor=(0.01, 0.99), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
 
         title_time_str = time_max_dt_plot.astimezone(JST).strftime('%Y-%m-%d %H:%M') if pd.notna(time_max_dt_plot) else 'N/A'
-        fig.suptitle(f"{rt.cp.EXCHANGE_NAME} {symbol.replace('/', '_')} [{market}] Layered Flow Chart {VERSION_LABEL} ({rt.cp.OHLCV_API_INTERVAL} Candle) - {title_time_str} JST", color='white', fontsize=rt.cp.TITLE_FONTSIZE, y=0.96)
+        fig.suptitle(f"{rt.cp.EXCHANGE_NAME} {symbol.replace('/', '_')} [{market}] Layered Flow Chart {RUNTIME_LABEL} ({rt.cp.OHLCV_API_INTERVAL} Candle) - {title_time_str} JST", color='white', fontsize=rt.cp.TITLE_FONTSIZE, y=0.96)
         try:
             fig.canvas.draw()
             fig.tight_layout(rect=[0.03, 0.04, 0.97, 0.95])
