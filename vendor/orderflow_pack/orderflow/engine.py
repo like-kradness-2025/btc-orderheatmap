@@ -18,8 +18,9 @@ import pandas as pd
 import pytz
 
 import runtime as base
-from absorption import aggregate_feature_bars, compute_absorption_markers
+from absorption import aggregate_feature_bars
 from absorption_features import build_absorption_features
+from absorption_v1 import compute_absorption_markers_v1
 from cvd import add_cvd_columns
 from oi import build_oi_ohlc, load_oi_rows
 from plot import render_layered_chart
@@ -116,7 +117,7 @@ async def run_once(
     bar_df = aggregate_feature_bars(feature_df, ohlcv_df, cfg) if not feature_df.empty else pd.DataFrame()
     if not bar_df.empty:
         bar_df = build_absorption_features(bar_df, agg_df, cfg)
-    markers = compute_absorption_markers(bar_df, cfg) if not bar_df.empty else []
+    markers = compute_absorption_markers_v1(bar_df, cfg) if not bar_df.empty else []
 
     oi_df = load_oi_rows(inputs['oi_jsonl'], ohlcv_start) if inputs.get('oi_jsonl') and inputs['oi_jsonl'].exists() else pd.DataFrame()
     oi_ohlc = build_oi_ohlc(oi_df, cfg.get('bar_interval', '5min')) if not oi_df.empty else pd.DataFrame()
