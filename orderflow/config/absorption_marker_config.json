@@ -18,7 +18,7 @@
   "normalize_floor": 1.0,
   "mid_move_quantile": 0.9,
   "mid_move_floor": 0.25,
-  "bar_interval": "15min",
+  "bar_interval": "5min",
   "aggregation": {
     "trade_imbalance_notional_window": "sum",
     "mid_move_window_bps": "sum",
