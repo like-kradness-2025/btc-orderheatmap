@@ -19,6 +19,7 @@ import pytz
 
 import runtime as base
 from absorption import aggregate_feature_bars, compute_absorption_markers
+from cvd import add_cvd_columns
 from oi import build_oi_ohlc, load_oi_rows
 from plot import render_layered_chart
 
@@ -61,6 +62,7 @@ async def run_once(
     inputs = base.resolve_inputs_v3(data_dir)
     book_df = base.data.load_book_data_with_stats_ws(market, base.cp.HOURS_TO_PLOT, inputs)
     agg_df = base.data.load_aggregated_trade_data_ws(market, base.cp.HOURS_TO_PLOT, inputs)
+    agg_df = add_cvd_columns(agg_df)
 
     ohlcv_start = now_utc - pd.Timedelta(hours=base.cp.HOURS_TO_PLOT + 1)
     interval_delta = pd.Timedelta(minutes=base.cp.OHLCV_API_INTERVAL_MINUTES)
@@ -70,7 +72,6 @@ async def run_once(
     if cached_ohlcv is not None and not cached_ohlcv.empty:
         cached_end = cached_ohlcv.index.max()
         if pd.notna(cached_end) and cached_end >= ohlcv_start:
-            # Re-fetch the last cached candle too; it may have been incomplete when cached.
             api_start = max(ohlcv_start, cached_end - interval_delta)
 
     api_ohlcv = pd.DataFrame()
@@ -122,10 +123,19 @@ async def run_once(
     with open(out_png, 'wb') as f:
         f.write(img.getvalue())
 
+    cvd_rows = int(len(agg_df)) if isinstance(agg_df, pd.DataFrame) and 'cvd_quote' in agg_df.columns else 0
+    cvd_last = None
+    if cvd_rows:
+        try:
+            cvd_last = float(agg_df['cvd_quote'].iloc[-1])
+        except Exception:
+            cvd_last = None
+
     print(
         f"OK runtime={RUNTIME_LABEL} out={out_png} rows(book={len(book_df)}, agg={len(agg_df)}, "
-        f"ohlcv={len(ohlcv_df)}, oi={len(oi_df)}, features={len(feature_df)}) markers={len(markers)} "
-        f"bands={bands_drawn} hours={base.cp.HOURS_TO_PLOT} ohlcv_source={ohlcv_source}"
+        f"ohlcv={len(ohlcv_df)}, oi={len(oi_df)}, features={len(feature_df)}, cvd={cvd_rows}) "
+        f"markers={len(markers)} bands={bands_drawn} hours={base.cp.HOURS_TO_PLOT} "
+        f"ohlcv_source={ohlcv_source} cvd_last={cvd_last}"
     )
 
     if discord_channel_id:
