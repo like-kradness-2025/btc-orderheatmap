@@ -12,11 +12,34 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
 import runtime as rt
-from oi import draw_oi_candle_layer, draw_oi_delta_background
+from oi import draw_oi_delta_background
 
 RUNTIME_LABEL = 'canonical'
 JST = rt.JST
 CVD_COLOR = '#FFD700'
+OI_LINE_COLOR = '#e5e7eb'
+
+
+def draw_oi_line_layer(ax_oi, oi_df: pd.DataFrame, cp_mod):
+    """Draw OI as a line on the OI subplot."""
+    if oi_df is None or oi_df.empty or 'close' not in oi_df.columns:
+        ax_oi.text(0.5, 0.5, 'OI data unavailable', transform=ax_oi.transAxes, ha='center', va='center', color='white', alpha=0.7)
+        return
+    work = oi_df.copy().sort_index()
+    work['close'] = pd.to_numeric(work['close'], errors='coerce')
+    work = work.dropna(subset=['close'])
+    if work.empty:
+        ax_oi.text(0.5, 0.5, 'OI data unavailable', transform=ax_oi.transAxes, ha='center', va='center', color='white', alpha=0.7)
+        return
+    ax_oi.plot(
+        mdates.date2num(work.index.to_pydatetime()),
+        work['close'],
+        color=OI_LINE_COLOR,
+        linewidth=1.15,
+        alpha=0.92,
+        label='OI',
+        zorder=2.2,
+    )
 
 
 def draw_cvd_line_layer(ax_oi, aggregated_trade_df: pd.DataFrame, time_min_dt_plot, time_max_dt_plot, cp_mod):
@@ -100,13 +123,13 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
 
         visible_oi = oi_ohlc[(oi_ohlc.index >= time_min_dt_plot) & (oi_ohlc.index <= time_max_dt_plot)] if not oi_ohlc.empty else pd.DataFrame()
         bands_drawn = draw_oi_delta_background(ax_oi, visible_oi, rt.cp, visible_ohlc)
-        draw_oi_candle_layer(ax_oi, visible_oi, rt.cp)
+        draw_oi_line_layer(ax_oi, visible_oi, rt.cp)
         ax_cvd = draw_cvd_line_layer(ax_oi, aggregated_trade_df, time_min_dt_plot, time_max_dt_plot, rt.cp)
         ax_oi.grid(True, linestyle=':', alpha=0.25, color='gray', zorder=0)
         ax_oi.tick_params(axis='x', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE)
         ax_oi.tick_params(axis='y', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE)
         ax_oi.yaxis.set_major_formatter(FuncFormatter(rt.y_fmt))
-        ax_oi.set_ylabel('OI', color='white', fontsize=rt.cp.AXIS_LABEL_FONTSIZE)
+        ax_oi.set_ylabel('OI', color=OI_LINE_COLOR, fontsize=rt.cp.AXIS_LABEL_FONTSIZE)
         ax_oi.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d\n%H:%M', tz=JST))
 
         latest_ohlc_visible = visible_ohlc.iloc[-1] if not visible_ohlc.empty else None
@@ -118,8 +141,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
 
         if not visible_oi.empty:
             latest_oi = visible_oi.iloc[-1]
-            oi_color = rt.cp.CANDLE_UP_BODY_COLOR if latest_oi['close'] >= latest_oi['open'] else rt.cp.CANDLE_DOWN_BODY_COLOR
-            ax_oi.text(0.995, 0.92, f"OI {rt.y_fmt(float(latest_oi['close']), None)}", transform=ax_oi.transAxes, ha='right', va='top', color=oi_color, fontsize=rt.cp.TICK_LABEL_FONTSIZE + 1)
+            ax_oi.text(0.995, 0.92, f"OI {rt.y_fmt(float(latest_oi['close']), None)}", transform=ax_oi.transAxes, ha='right', va='top', color=OI_LINE_COLOR, fontsize=rt.cp.TICK_LABEL_FONTSIZE + 1)
         if ax_cvd is not None and aggregated_trade_df is not None and 'cvd_quote' in aggregated_trade_df.columns:
             cvd_visible = aggregated_trade_df[(aggregated_trade_df.index >= time_min_dt_plot) & (aggregated_trade_df.index <= time_max_dt_plot)]
             if not cvd_visible.empty:
