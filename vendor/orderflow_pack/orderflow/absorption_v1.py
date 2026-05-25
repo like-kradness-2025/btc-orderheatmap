@@ -36,17 +36,18 @@ def _score_to_size(score: float, cfg: dict, score_floor: float, score_cap: float
 
 def _marker_price(row: pd.Series, side: str, cfg: dict) -> float | None:
     plot_cfg = cfg.get('plot', {})
-    offset_ratio = float(plot_cfg.get('y_offset_ratio') or plot_cfg.get('marker_price_fallback_offset_ratio', 0.02))
     high = _safe_float(row.get('high'))
     low = _safe_float(row.get('low'))
     close = _safe_float(row.get('close'))
+    ref = _safe_float(plot_cfg.get('marker_price_reference', close))
     if high is None or low is None:
         return close
-    span = max(high - low, 1e-9)
+    offset_bps = float(plot_cfg.get('marker_offset_bps', 50.0))
+    offset_price = ref * offset_bps / 10000.0
     if side == 'buy_absorption':
-        return high + span * offset_ratio
+        return high + offset_price
     if side == 'sell_absorption':
-        return low - span * offset_ratio
+        return low - offset_price
     return close
 
 
