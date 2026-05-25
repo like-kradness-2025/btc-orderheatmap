@@ -16,6 +16,42 @@ from oi import draw_oi_candle_layer, draw_oi_delta_background
 
 RUNTIME_LABEL = 'canonical'
 JST = rt.JST
+CVD_COLOR = '#FFD700'
+
+
+def draw_cvd_line_layer(ax_oi, aggregated_trade_df: pd.DataFrame, time_min_dt_plot, time_max_dt_plot, cp_mod):
+    """Draw CVD on a secondary y-axis over the OI subplot.
+
+    Plot-only responsibility: this function assumes CVD columns were already
+    created upstream by cvd.add_cvd_columns().
+    """
+    if aggregated_trade_df is None or aggregated_trade_df.empty or 'cvd_quote' not in aggregated_trade_df.columns:
+        return None
+    cvd = aggregated_trade_df[(aggregated_trade_df.index >= time_min_dt_plot) & (aggregated_trade_df.index <= time_max_dt_plot)].copy()
+    if cvd.empty:
+        return None
+    cvd['cvd_quote'] = pd.to_numeric(cvd['cvd_quote'], errors='coerce')
+    cvd = cvd.dropna(subset=['cvd_quote'])
+    if cvd.empty:
+        return None
+
+    ax_cvd = ax_oi.twinx()
+    ax_cvd.set_facecolor('none')
+    ax_cvd.plot(
+        mdates.date2num(cvd.index.to_pydatetime()),
+        cvd['cvd_quote'],
+        color=CVD_COLOR,
+        linewidth=1.15,
+        alpha=0.92,
+        label='CVD',
+        zorder=4.0,
+    )
+    ax_cvd.set_ylabel('CVD', color=CVD_COLOR, fontsize=cp_mod.AXIS_LABEL_FONTSIZE)
+    ax_cvd.tick_params(axis='y', colors=CVD_COLOR, labelsize=cp_mod.TICK_LABEL_FONTSIZE)
+    ax_cvd.yaxis.set_major_formatter(FuncFormatter(rt.y_fmt))
+    ax_cvd.grid(False)
+    return ax_cvd
+
 
 def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFrame, ohlc_data: pd.DataFrame, oi_ohlc: pd.DataFrame, markers, cfg, market: str = 'Futures', symbol: str = 'BTC/USDT') -> tuple[io.BytesIO, int]:
     center_price = rt.compute_center_price(book_df, aggregated_trade_df, ohlc_data)
@@ -65,6 +101,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         visible_oi = oi_ohlc[(oi_ohlc.index >= time_min_dt_plot) & (oi_ohlc.index <= time_max_dt_plot)] if not oi_ohlc.empty else pd.DataFrame()
         bands_drawn = draw_oi_delta_background(ax_oi, visible_oi, rt.cp, visible_ohlc)
         draw_oi_candle_layer(ax_oi, visible_oi, rt.cp)
+        ax_cvd = draw_cvd_line_layer(ax_oi, aggregated_trade_df, time_min_dt_plot, time_max_dt_plot, rt.cp)
         ax_oi.grid(True, linestyle=':', alpha=0.25, color='gray', zorder=0)
         ax_oi.tick_params(axis='x', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE)
         ax_oi.tick_params(axis='y', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE)
@@ -83,6 +120,12 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             latest_oi = visible_oi.iloc[-1]
             oi_color = rt.cp.CANDLE_UP_BODY_COLOR if latest_oi['close'] >= latest_oi['open'] else rt.cp.CANDLE_DOWN_BODY_COLOR
             ax_oi.text(0.995, 0.92, f"OI {rt.y_fmt(float(latest_oi['close']), None)}", transform=ax_oi.transAxes, ha='right', va='top', color=oi_color, fontsize=rt.cp.TICK_LABEL_FONTSIZE + 1)
+        if ax_cvd is not None and aggregated_trade_df is not None and 'cvd_quote' in aggregated_trade_df.columns:
+            cvd_visible = aggregated_trade_df[(aggregated_trade_df.index >= time_min_dt_plot) & (aggregated_trade_df.index <= time_max_dt_plot)]
+            if not cvd_visible.empty:
+                latest_cvd = pd.to_numeric(cvd_visible['cvd_quote'], errors='coerce').dropna()
+                if not latest_cvd.empty:
+                    ax_cvd.text(0.995, 0.72, f"CVD {rt.y_fmt(float(latest_cvd.iloc[-1]), None)}", transform=ax_cvd.transAxes, ha='right', va='top', color=CVD_COLOR, fontsize=rt.cp.TICK_LABEL_FONTSIZE + 1)
 
         main_handles, main_labels = ax_main_price.get_legend_handles_labels()
         marker_count = len(markers) if markers is not None else 0
@@ -101,6 +144,8 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             main_pos = ax_main_price.get_position()
             oi_pos = ax_oi.get_position()
             ax_oi.set_position([main_pos.x0, oi_pos.y0, main_pos.width, oi_pos.height])
+            if ax_cvd is not None:
+                ax_cvd.set_position(ax_oi.get_position())
         except Exception:
             pass
         img_buffer = io.BytesIO()
