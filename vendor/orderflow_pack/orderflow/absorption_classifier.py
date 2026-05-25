@@ -16,16 +16,18 @@ def classify_absorption_v1(feature_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         return pd.DataFrame()
     out = feature_df.copy().sort_index()
 
-    pressure_min = float(cfg.get('absorption_v1_pressure_z_min', 2.0))
-    refill_min = float(cfg.get('absorption_v1_refill_z_min', 1.5))
-    buy_close_max = float(cfg.get('absorption_v1_buy_close_pos_max', 0.50))
-    sell_close_min = float(cfg.get('absorption_v1_sell_close_pos_min', 0.50))
-    wick_min = float(cfg.get('absorption_v1_wick_ratio_min', 0.30))
+    # Defaults are intentionally conservative for display markers.  Candidate
+    # rows remain available internally, but plotted absorption should be sparse.
+    pressure_min = float(cfg.get('absorption_v1_pressure_z_min', 2.6))
+    refill_min = float(cfg.get('absorption_v1_refill_z_min', 2.2))
+    buy_close_max = float(cfg.get('absorption_v1_buy_close_pos_max', 0.42))
+    sell_close_min = float(cfg.get('absorption_v1_sell_close_pos_min', 0.58))
+    wick_min = float(cfg.get('absorption_v1_wick_ratio_min', 0.38))
 
     for col in [
         'buy_pressure_z', 'sell_pressure_z', 'ask_refill_z', 'bid_refill_z',
         'close_pos', 'upper_wick_ratio', 'lower_wick_ratio',
-        'buy_continuation', 'sell_continuation',
+        'body_efficiency', 'buy_continuation', 'sell_continuation',
     ]:
         if col not in out.columns:
             out[col] = False if col.endswith('continuation') else 0.0
@@ -49,16 +51,18 @@ def classify_absorption_v1(feature_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
     out['buy_absorption_score'] = (
         out['buy_pressure_z'].clip(lower=0)
-        + (1.0 - out['close_pos']).clip(lower=0, upper=1.0)
-        + out['upper_wick_ratio'].clip(lower=0)
-        + out['ask_refill_z'].clip(lower=0) * 0.6
+        + (1.0 - out['close_pos']).clip(lower=0, upper=1.0) * 1.2
+        + out['upper_wick_ratio'].clip(lower=0) * 1.0
+        + out['ask_refill_z'].clip(lower=0) * 0.45
+        - out['body_efficiency'].clip(lower=0, upper=1.0) * 0.25
     ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
     out['sell_absorption_score'] = (
         out['sell_pressure_z'].clip(lower=0)
-        + out['close_pos'].clip(lower=0, upper=1.0)
-        + out['lower_wick_ratio'].clip(lower=0)
-        + out['bid_refill_z'].clip(lower=0) * 0.6
+        + out['close_pos'].clip(lower=0, upper=1.0) * 1.2
+        + out['lower_wick_ratio'].clip(lower=0) * 1.0
+        + out['bid_refill_z'].clip(lower=0) * 0.45
+        - out['body_efficiency'].clip(lower=0, upper=1.0) * 0.25
     ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
     def _label(row):
