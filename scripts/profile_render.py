@@ -306,8 +306,9 @@ async def profile_run_once(
 
     with Timer('A4c. OHLCV merge+sanitize+save-cache'):
         ohlcv_df = base.data.merge_ohlcv_frames(cached_ohlcv, api_ohlcv)
-        if not ohlcv_df.empty and not cached_ohlcv.empty and not api_ohlcv.empty:
-            base.data.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
+        if not ohlcv_df.empty:
+            if cached_ohlcv is not None and not cached_ohlcv.empty and not api_ohlcv.empty:
+                base.data.save_ohlcv_cache(ohlcv_cache_path, ohlcv_df)
         if ohlcv_df is None or ohlcv_df.empty:
             ohlcv_df = base.data.generate_ohlcv_from_trades(
                 inputs, base.cp.HOURS_TO_PLOT + 1, cfg.get('bar_interval', '5min'))
