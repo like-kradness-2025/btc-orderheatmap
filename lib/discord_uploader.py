@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Dict
@@ -33,11 +34,7 @@ def _load_webhook_url() -> str:
     text = webhook_file.read_text(encoding="utf-8").strip()
     if not text:
         return ""
-    if text.startswith("http://") or text.startswith("https://"):
-        return text
-    if "=" in text:
-        return text.split("=", 1)[1].strip()
-    return text
+    return _fallback_webhook_text(text)
 
 
 def _payload_json(content: str) -> str:
@@ -123,6 +120,47 @@ def upload_via_webhook(webhook_url: str, file_path: str | Path, content: str = "
         raise DiscordUploadError(f"webhook upload failed: {last_error or exc}") from exc
 
 
+def _fallback_webhook_text(text: str) -> str:
+    """Parse webhook URL from file text (URL directly or key=value format)."""
+    if not text:
+        return ""
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    if "=" in text:
+        return text.split("=", 1)[1].strip()
+    return text
+
+
+def _load_webhook_url_for_channel(channel_id: str) -> str:
+    """Resolve webhook URL for a given channel_id.
+
+    1. DISCORD_WEBHOOK_URL env var (checked first for zero-config setups).
+    2. If a channel-specific file at ``WORKSPACE_ROOT / "webhook" / channel_id``
+       exists, use it.
+    3. Otherwise fall back to ``_load_webhook_url()`` (default).
+
+    Security: channel_id is validated as a Discord snowflake (17-19 digit
+    string) to prevent path traversal.
+    """
+    if not channel_id or not channel_id.strip():
+        return _load_webhook_url()
+
+    env_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+    if env_url:
+        return env_url
+
+    if not re.fullmatch(r"\d{17,19}", channel_id):
+        raise DiscordUploadError(f"invalid channel_id format: {channel_id[:20]}")
+
+    channel_file = WORKSPACE_ROOT / "webhook" / channel_id
+    if channel_file.exists():
+        text = channel_file.read_text(encoding="utf-8").strip()
+        return _fallback_webhook_text(text) if text else ""
+
+    # Channel-specific file not found; try fallback file from env / default
+    return _load_webhook_url()
+
+
 def upload_file(channel_id: str, file_path: str | Path, content: str = "") -> Dict[str, Any]:
-    webhook_url = _load_webhook_url()
+    webhook_url = _load_webhook_url_for_channel(channel_id)
     return upload_via_webhook(webhook_url, file_path, content=content)
