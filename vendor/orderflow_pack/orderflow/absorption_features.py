@@ -109,3 +109,74 @@ def build_absorption_features(bar_df: pd.DataFrame, agg_df: pd.DataFrame | None,
     out['sell_continuation'] = (out['sell_pressure_z'] >= sell_pressure_min) & (out['close_pos'] <= float(cfg.get('absorption_v1_sell_continuation_close_pos', 0.25)))
 
     return out
+
+
+PRICE_CANDIDATE_COLS = [
+    'best_ask_price',
+    'best_bid_price',
+    'ask_price',
+    'bid_price',
+    'trade_price',
+    'price',
+    'last_price',
+    'mid_price',
+    'mid',
+]
+
+
+def _safe_float(v):
+    try:
+        x = float(v)
+        if np.isfinite(x):
+            return x
+    except Exception:
+        return None
+    return None
+
+
+def _round_to_tick(price: float, tick: float | None):
+    if tick is None or tick <= 0:
+        return float(price)
+    return round(float(price) / tick) * tick
+
+
+def _aggregate_feature_bars_base(feature_df: pd.DataFrame, ohlc_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    if feature_df.empty or ohlc_df.empty:
+        return pd.DataFrame()
+    feature_df = feature_df.copy()
+    interval = cfg.get('bar_interval', '5min')
+    feature_df['bar_ts'] = feature_df['ts'].dt.floor(interval)
+    cols = [
+        'trade_imbalance_notional_window',
+        'mid_move_window_bps',
+        'net_ask_add_cancel_notional_window',
+        'net_bid_add_cancel_notional_window',
+        'best_ask_qty_delta_window',
+        'best_bid_qty_delta_window',
+        'depth_ask_notional_5bps_delta_window',
+        'depth_bid_notional_5bps_delta_window',
+    ]
+    for col in cols:
+        feature_df[col] = pd.to_numeric(feature_df.get(col), errors='coerce').fillna(0.0)
+    grouped = feature_df.groupby('bar_ts')[cols].sum()
+    out = ohlc_df[['open', 'high', 'low', 'close']].copy()
+    out.index = pd.to_datetime(out.index, utc=True)
+    out = out.join(grouped, how='left')
+    return out.fillna(0.0)
+
+
+def aggregate_feature_bars(feature_df: pd.DataFrame, ohlc_df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    out = _aggregate_feature_bars_base(feature_df, ohlc_df, cfg)
+    if out.empty or feature_df.empty:
+        return out
+    work = feature_df.copy()
+    interval = cfg.get('bar_interval', '5min')
+    work['bar_ts'] = pd.to_datetime(work['ts'], utc=True, errors='coerce').dt.floor(interval)
+    extra = {}
+    for col in PRICE_CANDIDATE_COLS:
+        if col in work.columns:
+            extra[col] = 'last'
+    if extra:
+        grouped_extra = work.groupby('bar_ts').agg(extra)
+        out = out.join(grouped_extra, how='left')
+    return out

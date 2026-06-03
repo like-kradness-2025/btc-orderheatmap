@@ -18,7 +18,7 @@ import pandas as pd
 import pytz
 
 import runtime as base
-from absorption import aggregate_feature_bars
+from absorption_features import aggregate_feature_bars
 from absorption_features import build_absorption_features
 from absorption_v1 import compute_absorption_markers_v1
 from cvd import add_cvd_columns
