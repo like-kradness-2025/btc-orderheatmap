@@ -172,6 +172,13 @@ def _negative_abs(x):
 
 
 def load_feature_rows(feature_path: Path, start_ts: pd.Timestamp | None) -> pd.DataFrame:
+    # Check cache before reading & parsing the (potentially large) JSONL.
+    hours = int((pd.Timestamp.now(tz='UTC') - start_ts).total_seconds() / 3600) if start_ts is not None else 0
+    fcache = data._CACHE_DIR / f"features_h{hours}.pkl"
+    cached = data._load_data_cache(fcache, source_path=feature_path)
+    if cached is not None:
+        return cached
+
     rows = data.read_jsonl_recent_until(feature_path, start_ts, chunk_bytes=16 * 1024 * 1024, max_bytes=256 * 1024 * 1024)
     if not rows:
         return pd.DataFrame()
@@ -180,6 +187,7 @@ def load_feature_rows(feature_path: Path, start_ts: pd.Timestamp | None) -> pd.D
     df = df.dropna(subset=['ts']).sort_values('ts').reset_index(drop=True)
     if start_ts is not None:
         df = df[df['ts'] >= start_ts]
+    data._save_data_cache(fcache, df)
     return df
 
 
