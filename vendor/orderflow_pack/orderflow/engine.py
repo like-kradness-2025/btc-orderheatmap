@@ -57,6 +57,10 @@ async def run_once(
     ohlcv_cache_path = ohlcv_cache_path or base.DEFAULT_OHLCV_CACHE_PATH
     absorption_config_path = absorption_config_path or base.DEFAULT_ABSORPTION_CFG_PATH
     cfg = base.load_absorption_config(absorption_config_path)
+    # Sync absorption bar interval with OHLCV interval to prevent feature/OHLCV
+    # time-base mismatch (absorption_features groups at bar_interval, then joins
+    # onto OHLCV index — mismatched intervals produce zero-filled majority rows).
+    cfg['bar_interval'] = f"{base.cp.OHLCV_API_INTERVAL_MINUTES}min"
     market = 'Futures'
     symbol = base.cp.SYMBOL
     now_utc = pd.Timestamp.now(tz=pytz.utc)
