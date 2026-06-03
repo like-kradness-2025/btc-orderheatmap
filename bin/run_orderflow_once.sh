@@ -6,16 +6,12 @@ DEFAULT_CHANNEL_ID="1480537635721314446"
 CHANNEL_ID="${DISCORD_CHANNEL_ID:-$DEFAULT_CHANNEL_ID}"
 ABS_CFG="${ABSORPTION_CONFIG_PATH:-$ROOT/orderflow/config/absorption_marker_config.json}"
 DATA_DIR="${BTC_LIVE_DATA_DIR:-$ROOT/data/live}"
-FEATURE_JSONL="${ORDERFLOW_FEATURE_JSONL:-$DATA_DIR/live_features_1s.jsonl}"
-SCORED_FEATURE_JSONL="${ORDERFLOW_SCORED_FEATURE_JSONL:-$DATA_DIR/live_features_with_scores.jsonl}"
 OUT_PNG="$ROOT/artifacts/orderflow_chart_latest.png"
 HOURS="${ORDERFLOW_HOURS:-24}"
 DISCORD_MESSAGE=""
 LOG="$ROOT/logs/orderflow_once.log"
 LOCKDIR="$ROOT/runtime/locks"
 LOCKFILE="$LOCKDIR/orderflow_once.lock"
-FEATURE_JSONL=""
-SCORED_FEATURE_JSONL=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -39,9 +35,6 @@ USAGE
   esac
 done
 
-FEATURE_JSONL="${ORDERFLOW_FEATURE_JSONL:-$DATA_DIR/live_features_1s.jsonl}"
-SCORED_FEATURE_JSONL="${ORDERFLOW_SCORED_FEATURE_JSONL:-$DATA_DIR/live_features_with_scores.jsonl}"
-
 mkdir -p "$ROOT/artifacts" "$ROOT/logs" "$LOCKDIR" "$ROOT/runtime/cache" "$DATA_DIR"
 
 exec 9>"$LOCKFILE"
@@ -51,74 +44,19 @@ if ! flock -n 9; then
 fi
 
 {
-  echo "[$(date -Is)] start: orderflow score+generate+upload data_dir=$DATA_DIR features=$FEATURE_JSONL scored=$SCORED_FEATURE_JSONL out=$OUT_PNG hours=$HOURS"
-  if python3 "$ROOT/scripts/calculate_absorption_scores.py" --config "$ABS_CFG" --input "$FEATURE_JSONL" --output "$SCORED_FEATURE_JSONL"; then
-    scored_rows=$(python3 - <<'PY' "$SCORED_FEATURE_JSONL"
-import json, sys
-from pathlib import Path
-path = Path(sys.argv[1])
-count = 0
-if path.exists():
-    with path.open('r', encoding='utf-8') as f:
-        for line in f:
-            if line.strip():
-                try:
-                    obj = json.loads(line)
-                except Exception:
-                    continue
-                if isinstance(obj, dict):
-                    count += 1
-print(count)
-PY
-)
-    echo "[$(date -Is)] score: orderflow scored_rows=$scored_rows output=$SCORED_FEATURE_JSONL"
-    marker_count=$(python3 - <<'PY' "$ROOT" "$DATA_DIR" "$ABS_CFG"
-import importlib.util
-import sys
-from pathlib import Path
-import pandas as pd
-
-root = Path(sys.argv[1])
-data_dir = Path(sys.argv[2])
-abs_cfg = Path(sys.argv[3])
-vendor = root / 'vendor' / 'orderflow_pack' / 'orderflow'
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, str(path))
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
-
-runtime = load('orderflow_runtime', vendor / 'runtime.py')
-absorption = load('orderflow_absorption', vendor / 'absorption.py')
-data = load('orderflow_data', vendor / 'data.py')
-cfg = runtime.load_absorption_config(abs_cfg)
-cfg = {**cfg, 'minimum_trade_imbalance_notional': -1.0, 'minimum_score': 1.0}
-inputs = data.resolve_inputs(data_dir)
-feature_df = runtime.load_feature_rows(inputs['feature_jsonl'], None)
-ohlcv = data.load_ohlcv_cache(root / 'runtime' / 'cache' / 'ohlcv_cache.pkl', ttl_sec=None)
-if ohlcv is None:
-    ohlcv = pd.DataFrame()
-if feature_df.empty or ohlcv.empty:
-    print(0)
-    raise SystemExit(0)
-bar_df = absorption.aggregate_feature_bars(feature_df, ohlcv, cfg)
-markers = absorption.compute_absorption_markers(bar_df, cfg)
-print(len(markers))
-PY
-)
-    echo "[$(date -Is)] verify: orderflow markers=$marker_count"
+  echo "[$(date -Is)] start: orderflow generate+upload data_dir=$DATA_DIR out=$OUT_PNG hours=$HOURS"
+  if "$ROOT/scripts/run_plot.sh" "$DATA_DIR" "$OUT_PNG" "$HOURS" "$ABS_CFG" "$CHANNEL_ID" "$DISCORD_MESSAGE"; then
+    echo "[$(date -Is)] done: orderflow generate+upload out=$OUT_PNG"
   else
     rc=$?
-    echo "[$(date -Is)] fail: orderflow score calculation rc=$rc"
+    echo "[$(date -Is)] fail: orderflow generate+upload rc=$rc"
     exit "$rc"
   fi
-  if "$ROOT/scripts/run_plot.sh" "$DATA_DIR" "$OUT_PNG" "$HOURS" "$ABS_CFG" "$CHANNEL_ID" "$DISCORD_MESSAGE"; then
-    echo "[$(date -Is)] done: orderflow score+generate+upload out=$OUT_PNG"
+  FP_DIR="$HOME/btc-footprint"
+  if python3 "$FP_DIR/scripts/run_footprint_once.py" --data-dir "$DATA_DIR"; then
+    echo "[$(date -Is)] done: footprint generate+upload"
   else
     rc=$?
-    echo "[$(date -Is)] fail: orderflow score+generate+upload rc=$rc"
-    exit "$rc"
+    echo "[$(date -Is)] fail: footprint generate+upload rc=$rc"
   fi
 } >> "$LOG" 2>&1
