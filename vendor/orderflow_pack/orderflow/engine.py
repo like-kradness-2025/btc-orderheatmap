@@ -37,6 +37,14 @@ async def run_once(
     discord_channel_id: str | None = None,
     discord_message: str = '',
 ):
+    # Save original chart_config values to restore after the run, preventing
+    # state contamination between sequential calls (the loop calls run_once
+    # repeatedly in the same process).
+    _saved_cfg = {a: getattr(base.cp, a) for a in (
+        'HOURS_TO_PLOT', 'OB_TIME_RESOLUTION', 'OB_Y_AXIS_RANGE',
+        'OHLCV_API_INTERVAL', 'OHLCV_API_INTERVAL_MINUTES',
+        'OI_FETCH_INTERVAL', 'VWAP_PERIODS_CONFIG',
+    )}
     base.cp.HOURS_TO_PLOT = hours_to_plot if hours_to_plot else base.HOURS_TO_PLOT_OVERRIDE
     base.cp.OB_TIME_RESOLUTION = base.OB_TIME_RESOLUTION_OVERRIDE
     base.cp.OB_Y_AXIS_RANGE = base.OB_Y_AXIS_RANGE_OVERRIDE
@@ -156,6 +164,9 @@ async def run_once(
 
     if discord_channel_id:
         base.upload_output_if_needed(out_png, discord_channel_id, discord_message)
+    # Restore original chart_config values.
+    for attr, val in _saved_cfg.items():
+        setattr(base.cp, attr, val)
 
 
 def main(argv: list[str] | None = None) -> int:

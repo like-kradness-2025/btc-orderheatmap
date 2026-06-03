@@ -57,7 +57,20 @@ def load_module(name: str, path: Path):
     return mod
 
 
-cp = load_module('orderheatmap_chart_config', CP_PATH)
+# Lazy-load chart_config to avoid import-time side effects (PEP 562).
+# The module is loaded on first access via __getattr__, then cached.
+_CP_CACHE = None
+
+def _get_cp():
+    global _CP_CACHE
+    if _CP_CACHE is None:
+        _CP_CACHE = load_module('orderheatmap_chart_config', CP_PATH)
+    return _CP_CACHE
+
+def __getattr__(name):
+    if name == 'cp':
+        return _get_cp()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 def y_fmt(y, pos):
     if abs(y) >= 1e9:
