@@ -309,8 +309,15 @@ def draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df: pd.DataFrame, price
         norm_bid = mcolors.Normalize(vmin=qty_thresh, vmax=common_vmax, clip=True)
         norm_ask = mcolors.Normalize(vmin=qty_thresh, vmax=common_vmax, clip=True)
 
-    bid_pc_hm = ax_main_price.pcolormesh(time_edges_num_hm, price_bins_hm, bid_mask, cmap=cmap_bid, norm=norm_bid, shading='flat', zorder=1, alpha=0.8)
-    ask_pc_hm = ax_main_price.pcolormesh(time_edges_num_hm, price_bins_hm, ask_mask, cmap=cmap_ask, norm=norm_ask, shading='flat', zorder=1, alpha=0.8)
+    # Convert masked arrays to NaN arrays for imshow compat
+    bid_img_data = np.where(bid_mask.mask if hasattr(bid_mask, 'mask') else False, np.nan, bid_mask.data if hasattr(bid_mask, 'data') else bid_mask).astype(np.float32)
+    ask_img_data = np.where(ask_mask.mask if hasattr(ask_mask, 'mask') else False, np.nan, ask_mask.data if hasattr(ask_mask, 'data') else ask_mask).astype(np.float32)
+
+    x_extent = [time_edges_num_hm[0], time_edges_num_hm[-1]]
+    y_extent = [price_bins_hm[0], price_bins_hm[-1]]
+
+    bid_pc_hm = ax_main_price.imshow(bid_img_data, extent=[*x_extent, *y_extent], origin='lower', aspect='auto', interpolation='nearest', cmap=cmap_bid, norm=norm_bid, zorder=1, alpha=0.8)
+    ask_pc_hm = ax_main_price.imshow(ask_img_data, extent=[*x_extent, *y_extent], origin='lower', aspect='auto', interpolation='nearest', cmap=cmap_ask, norm=norm_ask, zorder=1, alpha=0.8)
 
     cbar_formatter = mticker.LogFormatterSciNotation(base=10) if cp_mod.OB_COLOR_NORM == 'log' else None
     gs_cbar_inner = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=ax_cbar_left.get_subplotspec(), hspace=0.1)

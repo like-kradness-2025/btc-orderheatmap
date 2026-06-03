@@ -161,7 +161,6 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         title_time_str = time_max_dt_plot.astimezone(JST).strftime('%Y-%m-%d %H:%M') if pd.notna(time_max_dt_plot) else 'N/A'
         fig.suptitle(f"{symbol.replace('/', '_')} {market} OrderHeatmap v3.41 | {rt.cp.OHLCV_API_INTERVAL} | {title_time_str} JST", color='white', fontsize=rt.cp.TITLE_FONTSIZE, y=0.96)
         try:
-            fig.canvas.draw()
             fig.tight_layout(rect=[0.03, 0.04, 0.97, 0.95])
             main_pos = ax_main_price.get_position()
             oi_pos = ax_oi.get_position()
@@ -171,7 +170,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         except Exception:
             pass
         img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', dpi=rt.SAVEFIG_DPI_OVERRIDE, facecolor=fig.get_facecolor())
+        plt.savefig(img_buffer, format='png', dpi=rt.SAVEFIG_DPI_OVERRIDE, facecolor=fig.get_facecolor(), pil_kwargs={'compress_level': 1})
         img_buffer.seek(0)
         plt.close(fig)
         return img_buffer, bands_drawn
