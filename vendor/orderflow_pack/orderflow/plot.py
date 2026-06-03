@@ -83,9 +83,9 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
     time_min_dt_plot, time_max_dt_plot = rt.compute_plot_window(book_df, aggregated_trade_df, ohlc_data, rt.cp.HOURS_TO_PLOT)
 
     with plt.style.context('dark_background'):
-        fig = plt.figure(figsize=(rt.cp.FIG_WIDTH * 1.5, rt.cp.FIG_HEIGHT * 1.12))
+        fig = plt.figure(figsize=(rt.cp.FIG_WIDTH * rt.cp.FIG_WIDTH_MULTIPLIER, rt.cp.FIG_HEIGHT * rt.cp.FIG_HEIGHT_MULTIPLIER))
         fig.patch.set_facecolor('#121212')
-        gs_outer = gridspec.GridSpec(2, 1, height_ratios=[6.2, 1.55], hspace=0.08, left=0.06, right=0.94, bottom=0.10, top=0.92)
+        gs_outer = gridspec.GridSpec(2, 1, height_ratios=[rt.cp.FIG_HEIGHT_RATIO_MAIN, rt.cp.FIG_HEIGHT_RATIO_OI], hspace=0.08, left=0.06, right=0.94, bottom=0.10, top=0.92)
 
         current_grid_ratios = rt.cp.GRIDSPEC_WIDTH_RATIOS_WITH_BAR.copy()
         gs_top_outer = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_outer[0], width_ratios=[current_grid_ratios[0], current_grid_ratios[1] + current_grid_ratios[2]], wspace=0.054)

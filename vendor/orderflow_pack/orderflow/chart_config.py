@@ -27,6 +27,10 @@ FUTURES_OHLCV_API_ENDPOINT = "/fapi/v1/klines"
 # contract; do not change layout/aspect without an explicit product decision.
 FIG_WIDTH = 15
 FIG_HEIGHT = 13
+FIG_WIDTH_MULTIPLIER = 1.5
+FIG_HEIGHT_MULTIPLIER = 1.12
+FIG_HEIGHT_RATIO_MAIN = 6.2
+FIG_HEIGHT_RATIO_OI = 1.55
 BG_COLOR = "#151515"
 TITLE_FONTSIZE = 14
 AXIS_LABEL_FONTSIZE = 8

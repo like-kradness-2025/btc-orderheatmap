@@ -26,7 +26,7 @@ if str(ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(ENGINE_DIR))
 
 from lib.discord_uploader import DiscordUploadError, upload_file
-import data as data
+import data
 
 CP_PATH = ENGINE_DIR / 'chart_config.py'
 DEFAULT_DATA_DIR = PROJECT_ROOT / 'data' / 'live'

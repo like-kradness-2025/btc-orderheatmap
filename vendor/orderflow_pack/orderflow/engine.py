@@ -71,7 +71,6 @@ async def run_once(
     agg_df = add_cvd_columns(agg_df)
 
     # Freshness: compute age of latest data point for each source
-    now_utc = pd.Timestamp.now(tz=pytz.utc)
     book_age_s = int((now_utc - book_df.index.max()).total_seconds()) if not book_df.empty else None
     agg_age_s = int((now_utc - agg_df.index.max()).total_seconds()) if not agg_df.empty else None
     if (book_age_s is not None and book_age_s > base.data.DATA_FRESHNESS_SEC) or \
