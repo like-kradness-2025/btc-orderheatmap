@@ -85,7 +85,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
     with plt.style.context('dark_background'):
         fig = plt.figure(figsize=(rt.cp.FIG_WIDTH * rt.cp.FIG_WIDTH_MULTIPLIER, rt.cp.FIG_HEIGHT * rt.cp.FIG_HEIGHT_MULTIPLIER))
         fig.patch.set_facecolor('#121212')
-        gs_outer = gridspec.GridSpec(2, 1, height_ratios=[rt.cp.FIG_HEIGHT_RATIO_MAIN, rt.cp.FIG_HEIGHT_RATIO_OI], hspace=0.08, left=0.06, right=0.94, bottom=0.10, top=0.92)
+        gs_outer = gridspec.GridSpec(2, 1, height_ratios=[rt.cp.FIG_HEIGHT_RATIO_MAIN, rt.cp.FIG_HEIGHT_RATIO_OI], hspace=0.06, left=0.055, right=0.955, bottom=0.085, top=0.925)
 
         current_grid_ratios = rt.cp.GRIDSPEC_WIDTH_RATIOS_WITH_BAR.copy()
         gs_top_outer = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_outer[0], width_ratios=[current_grid_ratios[0], current_grid_ratios[1] + current_grid_ratios[2]], wspace=0.054)
@@ -111,7 +111,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         ax_main_price.yaxis.set_major_formatter(rt.price_formatter)
         ax_main_price.set_xlim(mdates.date2num(time_min_dt_plot), mdates.date2num(time_max_dt_plot))
         plt.setp(ax_main_price.get_xticklabels(), visible=False)
-        ax_main_price.grid(True, axis='x', linestyle=':', alpha=0.3, color='gray', zorder=0)
+        ax_main_price.grid(True, axis='x', linestyle=':', alpha=0.18, color='gray', zorder=0)
 
         rt.draw_heatmap_layer(ax_main_price, ax_cbar_left, book_df, price_min, price_max, rt.cp, time_min_dt_plot, time_max_dt_plot)
         visible_ohlc = ohlc_data[(ohlc_data.index >= time_min_dt_plot) & (ohlc_data.index <= time_max_dt_plot)] if not ohlc_data.empty else pd.DataFrame()
@@ -125,7 +125,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         bands_drawn = draw_oi_delta_background(ax_oi, visible_oi, rt.cp, visible_ohlc)
         draw_oi_line_layer(ax_oi, visible_oi, rt.cp)
         ax_cvd = draw_cvd_line_layer(ax_oi, aggregated_trade_df, time_min_dt_plot, time_max_dt_plot, rt.cp)
-        ax_oi.grid(True, linestyle=':', alpha=0.25, color='gray', zorder=0)
+        ax_oi.grid(True, linestyle=':', alpha=0.16, color='gray', zorder=0)
         ax_oi.tick_params(axis='x', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE)
         ax_oi.tick_params(axis='y', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE)
         ax_oi.yaxis.set_major_formatter(FuncFormatter(rt.y_fmt))
@@ -159,7 +159,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=rt.cp.LEGEND_FONTSIZE, loc='upper left', bbox_to_anchor=(0.01, 0.99), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
 
         title_time_str = time_max_dt_plot.astimezone(JST).strftime('%Y-%m-%d %H:%M') if pd.notna(time_max_dt_plot) else 'N/A'
-        fig.suptitle(f"{rt.cp.EXCHANGE_NAME} {symbol.replace('/', '_')} [{market}] Layered Flow Chart {RUNTIME_LABEL} ({rt.cp.OHLCV_API_INTERVAL} Candle) - {title_time_str} JST", color='white', fontsize=rt.cp.TITLE_FONTSIZE, y=0.96)
+        fig.suptitle(f"{symbol.replace('/', '_')} {market} OrderHeatmap v3.41 | {rt.cp.OHLCV_API_INTERVAL} | {title_time_str} JST", color='white', fontsize=rt.cp.TITLE_FONTSIZE, y=0.96)
         try:
             fig.canvas.draw()
             fig.tight_layout(rect=[0.03, 0.04, 0.97, 0.95])

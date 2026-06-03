@@ -36,7 +36,7 @@ DEFAULT_ABSORPTION_CFG_PATH = PROJECT_ROOT / 'orderflow' / 'config' / 'absorptio
 
 RUNTIME_LABEL = 'canonical'
 VERSION_LABEL = RUNTIME_LABEL
-SAVEFIG_DPI_OVERRIDE = 500
+SAVEFIG_DPI_OVERRIDE = 150
 OHLCV_CACHE_TTL_SEC = 60
 HOURS_TO_PLOT_OVERRIDE = 12
 OB_TIME_RESOLUTION_OVERRIDE = '5min'
@@ -428,7 +428,7 @@ def draw_orderbook_bar_layer(ax_ob_bars, book_df: pd.DataFrame, price_min: float
     ax_ob_bars.yaxis.set_label_position('right')
     ax_ob_bars.yaxis.set_major_locator(mticker.MultipleLocator(200))
     ax_ob_bars.tick_params(axis='y', colors='white', labelsize=cp_mod.TICK_LABEL_FONTSIZE)
-    ax_ob_bars.grid(True, axis='y', linestyle=':', linewidth=0.5, color='gray', alpha=0.3, zorder=0)
+    ax_ob_bars.grid(True, axis='y', linestyle=':', linewidth=0.5, color='gray', alpha=0.18, zorder=0)
 
     max_bar_qty_abs = 1.0
     if not book_df.empty:
@@ -459,7 +459,7 @@ def draw_orderbook_bar_layer(ax_ob_bars, book_df: pd.DataFrame, price_min: float
         ob_ask_color = plt.get_cmap(cp_mod.OB_ASK_CMAP_NAME)(0.8)
         ax_ob_bars.barh(price_centers_bar, bid_width, height=cp_mod.OB_BAR_AGGREGATION_PRICE * 0.9, color=ob_bid_color, alpha=0.7, align='center', zorder=1)
         ax_ob_bars.barh(price_centers_bar, ask_width, height=cp_mod.OB_BAR_AGGREGATION_PRICE * 0.9, color=ob_ask_color, alpha=0.7, align='center', zorder=1)
-        top_n = 5
+        top_n = 3
         top_bids = np.argsort(bid_qtys_bar)[::-1][:top_n]
         top_asks = np.argsort(ask_qtys_bar)[::-1][:top_n]
         for i, p_center in enumerate(price_centers_bar):
