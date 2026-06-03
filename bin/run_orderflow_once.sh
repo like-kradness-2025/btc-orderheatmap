@@ -76,43 +76,6 @@ print(count)
 PY
 )
       echo "[$(date -Is)] score: orderflow scored_rows=$scored_rows output=$SCORED_FEATURE_JSONL"
-      marker_count=$(python3 - <<'PY' "$ROOT" "$DATA_DIR" "$ABS_CFG" 2>/dev/null || echo "0"
-import importlib.util
-import sys
-from pathlib import Path
-import pandas as pd
-
-root = Path(sys.argv[1])
-data_dir = Path(sys.argv[2])
-abs_cfg = Path(sys.argv[3])
-vendor = root / 'vendor' / 'orderflow_pack' / 'orderflow'
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, str(path))
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
-
-runtime = load('orderflow_runtime', vendor / 'runtime.py')
-absorption = load('orderflow_absorption', vendor / 'absorption.py')
-data = load('orderflow_data', vendor / 'data.py')
-cfg = runtime.load_absorption_config(abs_cfg)
-cfg = {**cfg, 'minimum_trade_imbalance_notional': -1.0, 'minimum_score': 1.0}
-inputs = data.resolve_inputs(data_dir)
-feature_df = runtime.load_feature_rows(inputs['feature_jsonl'], None)
-ohlcv = data.load_ohlcv_cache(root / 'runtime' / 'cache' / 'ohlcv_cache.pkl', ttl_sec=None)
-if ohlcv is None:
-    ohlcv = pd.DataFrame()
-if feature_df.empty or ohlcv.empty:
-    print(0)
-    raise SystemExit(0)
-bar_df = absorption.aggregate_feature_bars(feature_df, ohlcv, cfg)
-markers = absorption.compute_absorption_markers(bar_df, cfg)
-print(len(markers))
-PY
-)
-      echo "[$(date -Is)] verify: orderflow markers=$marker_count"
     else
       rc=$?
       echo "[$(date -Is)] warn: orderflow score calculation rc=$rc, continuing without pre-scored features" >&2
