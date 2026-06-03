@@ -172,16 +172,29 @@ def _negative_abs(x):
 
 
 def load_feature_rows(feature_path: Path, start_ts: pd.Timestamp | None) -> pd.DataFrame:
-    # Check cache before reading & parsing the (potentially large) JSONL.
-    # NOTE: source_path mtime check is NOT used here because feature JSONL is
-    # continuously appended every second — source mtime is always newer than
-    # cache, so it would always invalidate. TTL-only invalidation is correct.
     hours = int((pd.Timestamp.now(tz='UTC') - start_ts).total_seconds() / 3600) if start_ts is not None else 0
     fcache = data._CACHE_DIR / f"features_h{hours}.pkl"
+
+    # Try persistent cache + incremental tail read
     cached = data._load_data_cache(fcache)
-    if cached is not None:
+    if cached is not None and not cached.empty:
+        latest_ts = cached['ts'].max()
+        new_rows = data.read_jsonl_recent_until(feature_path, latest_ts, data.INCREMENTAL_CHUNK_BYTES, data.INCREMENTAL_MAX_BYTES)
+        if new_rows:
+            new_df = pd.DataFrame(new_rows)
+            new_df['ts'] = pd.to_datetime(new_df['ts'], utc=True, errors='coerce')
+            new_df = new_df.dropna(subset=['ts'])
+            new_df = new_df[new_df['ts'] > latest_ts]
+            if not new_df.empty:
+                cached = pd.concat([cached, new_df], ignore_index=True)
+                cached = cached.sort_values('ts').reset_index(drop=True)
+        # Trim to hours window — keeps cache bounded
+        cutoff = cached['ts'].max() - pd.Timedelta(hours=hours)
+        cached = cached[cached['ts'] >= cutoff]
+        data._save_data_cache(fcache, cached)
         return cached
 
+    # Full read fallback
     rows = data.read_jsonl_recent_until(feature_path, start_ts, chunk_bytes=16 * 1024 * 1024, max_bytes=256 * 1024 * 1024)
     if not rows:
         return pd.DataFrame()
