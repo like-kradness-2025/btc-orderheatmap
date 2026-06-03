@@ -52,8 +52,12 @@ fi
 
 {
   echo "[$(date -Is)] start: orderflow score+generate+upload data_dir=$DATA_DIR features=$FEATURE_JSONL scored=$SCORED_FEATURE_JSONL out=$OUT_PNG hours=$HOURS"
-  if python3 "$ROOT/scripts/calculate_absorption_scores.py" --config "$ABS_CFG" --input "$FEATURE_JSONL" --output "$SCORED_FEATURE_JSONL"; then
-    scored_rows=$(python3 - <<'PY' "$SCORED_FEATURE_JSONL"
+
+  # Absorption score 計算: features が存在する場合のみ実行。欠損時はスキップして
+  # renderer 側の fallback に任せる（engine は features 空でも動作可能）。
+  if [ -f "$FEATURE_JSONL" ] && [ -s "$FEATURE_JSONL" ]; then
+    if python3 "$ROOT/scripts/calculate_absorption_scores.py" --config "$ABS_CFG" --input "$FEATURE_JSONL" --output "$SCORED_FEATURE_JSONL"; then
+      scored_rows=$(python3 - <<'PY' "$SCORED_FEATURE_JSONL"
 import json, sys
 from pathlib import Path
 path = Path(sys.argv[1])
@@ -71,8 +75,8 @@ if path.exists():
 print(count)
 PY
 )
-    echo "[$(date -Is)] score: orderflow scored_rows=$scored_rows output=$SCORED_FEATURE_JSONL"
-    marker_count=$(python3 - <<'PY' "$ROOT" "$DATA_DIR" "$ABS_CFG"
+      echo "[$(date -Is)] score: orderflow scored_rows=$scored_rows output=$SCORED_FEATURE_JSONL"
+      marker_count=$(python3 - <<'PY' "$ROOT" "$DATA_DIR" "$ABS_CFG" 2>/dev/null || echo "0"
 import importlib.util
 import sys
 from pathlib import Path
@@ -108,11 +112,13 @@ markers = absorption.compute_absorption_markers(bar_df, cfg)
 print(len(markers))
 PY
 )
-    echo "[$(date -Is)] verify: orderflow markers=$marker_count"
+      echo "[$(date -Is)] verify: orderflow markers=$marker_count"
+    else
+      rc=$?
+      echo "[$(date -Is)] warn: orderflow score calculation rc=$rc, continuing without pre-scored features" >&2
+    fi
   else
-    rc=$?
-    echo "[$(date -Is)] fail: orderflow score calculation rc=$rc"
-    exit "$rc"
+    echo "[$(date -Is)] skip: orderflow score calculation (features file missing: $FEATURE_JSONL)" >&2
   fi
   if "$ROOT/scripts/run_plot.sh" "$DATA_DIR" "$OUT_PNG" "$HOURS" "$ABS_CFG" "$CHANNEL_ID" "$DISCORD_MESSAGE"; then
     echo "[$(date -Is)] done: orderflow score+generate+upload out=$OUT_PNG"
