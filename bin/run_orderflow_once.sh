@@ -127,4 +127,11 @@ PY
     echo "[$(date -Is)] fail: orderflow score+generate+upload rc=$rc"
     exit "$rc"
   fi
+  FP_DIR="$HOME/btc-footprint"
+  if python3 "$FP_DIR/scripts/run_footprint_once.py" --data-dir "$DATA_DIR"; then
+    echo "[$(date -Is)] done: footprint generate+upload"
+  else
+    rc=$?
+    echo "[$(date -Is)] warn: footprint generate+upload rc=$rc"
+  fi
 } >> "$LOG" 2>&1
