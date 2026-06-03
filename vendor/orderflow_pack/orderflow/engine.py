@@ -66,6 +66,14 @@ async def run_once(
     agg_df = base.data.load_aggregated_trade_data_ws(market, base.cp.HOURS_TO_PLOT, inputs)
     agg_df = add_cvd_columns(agg_df)
 
+    # Freshness: compute age of latest data point for each source
+    now_utc = pd.Timestamp.now(tz=pytz.utc)
+    book_age_s = int((now_utc - book_df.index.max()).total_seconds()) if not book_df.empty else None
+    agg_age_s = int((now_utc - agg_df.index.max()).total_seconds()) if not agg_df.empty else None
+    if (book_age_s is not None and book_age_s > base.data.DATA_FRESHNESS_SEC) or \
+       (agg_age_s is not None and agg_age_s > base.data.DATA_FRESHNESS_SEC):
+        print(f"STALE_DATA book={book_age_s}s agg={agg_age_s}s")
+
     ohlcv_start = now_utc - pd.Timedelta(hours=base.cp.HOURS_TO_PLOT + 1)
     interval_delta = pd.Timedelta(minutes=base.cp.OHLCV_API_INTERVAL_MINUTES)
 
@@ -140,6 +148,7 @@ async def run_once(
         f"ohlcv={len(ohlcv_df)}, oi={len(oi_df)}, features={len(feature_df)}, cvd={cvd_rows}) "
         f"markers={len(markers)} bands={bands_drawn} hours={base.cp.HOURS_TO_PLOT} "
         f"ohlcv_source={ohlcv_source} cvd_last={cvd_last}"
+        f" book_age={book_age_s}s agg_age={agg_age_s}s"
     )
 
     if discord_channel_id:

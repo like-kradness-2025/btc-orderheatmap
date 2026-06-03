@@ -20,6 +20,29 @@ TRADE_RECENT_CHUNK_BYTES = 64 * 1024 * 1024
 TRADE_RECENT_MAX_BYTES = 512 * 1024 * 1024
 TRADE_AGGREGATION_RESOLUTION = "1min"
 TRADE_PRICE_BUCKET_USD = 10.0
+DATA_FRESHNESS_SEC = 300
+
+
+def check_data_freshness(
+    df_index: pd.Index, label: str, max_age_sec: int = DATA_FRESHNESS_SEC
+) -> bool:
+    """Check the most recent timestamp in a DatetimeIndex against now.
+
+    Returns True if fresh (age <= max_age_sec) or index is empty.
+    Prints a WARN line when stale — does NOT raise.
+    """
+    if df_index.empty:
+        return True
+    now = pd.Timestamp.now(tz="UTC")
+    last_update = df_index.max()
+    age_sec = int((now - last_update).total_seconds())
+    if age_sec > max_age_sec:
+        print(
+            f"WARN data.freshness: {label} last_update={last_update} "
+            f"age={age_sec}s > {max_age_sec}s"
+        )
+        return False
+    return True
 
 
 def resolve_inputs(data_dir: Path) -> dict[str, Path]:
@@ -211,7 +234,9 @@ def load_book_data_with_stats_ws(market: str, hours: int, inputs: dict[str, Path
         return pd.Series({"bids_json": bids, "asks_json": asks})
 
     out[["bids_json", "asks_json"]] = out.apply(sanitize_book_levels, axis=1)
-    return out[~out.index.duplicated(keep="last")].sort_index()
+    out = out[~out.index.duplicated(keep="last")].sort_index()
+    check_data_freshness(out.index, "book", DATA_FRESHNESS_SEC)
+    return out
 
 
 def _plot_weight(sum_qty: pd.Series, max_qty: pd.Series, trade_count: pd.Series) -> pd.Series:
@@ -243,12 +268,16 @@ def load_aggregated_trade_data_ws(market: str, hours: int, inputs: dict[str, Pat
         rows = read_jsonl_recent_until(compact_path, start_ts, TRADE_RECENT_CHUNK_BYTES, TRADE_RECENT_MAX_BYTES)
         compact_df = _aggregate_compact_trades(rows, hours)
         if not compact_df.empty:
+            check_data_freshness(compact_df.index, "agg", DATA_FRESHNESS_SEC)
             return compact_df
 
     rows = read_jsonl_recent_until(inputs["trade_jsonl"], start_ts, TRADE_RECENT_CHUNK_BYTES, TRADE_RECENT_MAX_BYTES)
     if not rows:
         return pd.DataFrame()
-    return _aggregate_raw_trades(rows, hours)
+    result = _aggregate_raw_trades(rows, hours)
+    if not result.empty:
+        check_data_freshness(result.index, "agg", DATA_FRESHNESS_SEC)
+    return result
 
 
 def _aggregate_compact_trades(rows: list[dict[str, Any]], hours: int) -> pd.DataFrame:
