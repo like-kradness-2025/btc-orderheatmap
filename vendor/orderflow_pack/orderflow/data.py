@@ -234,7 +234,9 @@ def load_book_data_with_stats_ws(market: str, hours: int, inputs: dict[str, Path
         return pd.DataFrame()
 
     book_cache = _CACHE_DIR / _cache_key("book_data", hours)
-    cached = _load_data_cache(book_cache, source_path=inputs.get("book_bucket_jsonl") or inputs.get("book_jsonl"))
+    # TTL-only invalidation (no source mtime check) — JSONL files are
+    # continuously appended, so mtime always postdates the cache.
+    cached = _load_data_cache(book_cache)
     if cached is not None:
         return cached
 
@@ -316,10 +318,11 @@ def load_aggregated_trade_data_ws(market: str, hours: int, inputs: dict[str, Pat
     compact_path = inputs.get("trade_compact_jsonl")
     if compact_path and compact_path.exists():
         agg_cache = _CACHE_DIR / _cache_key("agg_compact_trade", hours)
-        cached = _load_data_cache(agg_cache, source_path=compact_path)
+        # TTL-only — see book cache comment above.
+        cached = _load_data_cache(agg_cache)
     else:
         agg_cache = _CACHE_DIR / _cache_key("agg_trade", hours)
-        cached = _load_data_cache(agg_cache, source_path=inputs.get("trade_jsonl"))
+        cached = _load_data_cache(agg_cache)
     if cached is not None:
         return cached
 
