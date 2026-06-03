@@ -173,9 +173,12 @@ def _negative_abs(x):
 
 def load_feature_rows(feature_path: Path, start_ts: pd.Timestamp | None) -> pd.DataFrame:
     # Check cache before reading & parsing the (potentially large) JSONL.
+    # NOTE: source_path mtime check is NOT used here because feature JSONL is
+    # continuously appended every second — source mtime is always newer than
+    # cache, so it would always invalidate. TTL-only invalidation is correct.
     hours = int((pd.Timestamp.now(tz='UTC') - start_ts).total_seconds() / 3600) if start_ts is not None else 0
     fcache = data._CACHE_DIR / f"features_h{hours}.pkl"
-    cached = data._load_data_cache(fcache, source_path=feature_path)
+    cached = data._load_data_cache(fcache)
     if cached is not None:
         return cached
 
