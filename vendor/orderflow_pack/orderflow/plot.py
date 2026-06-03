@@ -156,7 +156,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
             main_handles.append(Line2D([0], [0], marker=cfg['plot'].get('sell_marker', 'o'), color='none', label='Sell absorption', markerfacecolor=cfg['plot'].get('sell_color', '#ef4444'), markeredgecolor='white', markersize=8))
             main_labels.extend(['Buy absorption', 'Sell absorption'])
         if main_handles:
-            ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=rt.cp.LEGEND_FONTSIZE, loc='lower left', bbox_to_anchor=(0.02, 0.02), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
+            ax_main_price.legend(handles=main_handles, labels=main_labels, fontsize=rt.cp.LEGEND_FONTSIZE, loc='lower left', bbox_to_anchor=(0.005, 0.005), framealpha=0.7, labelcolor='white').get_frame().set_facecolor('black')
 
         title_time_str = time_max_dt_plot.astimezone(JST).strftime('%Y-%m-%d %H:%M') if pd.notna(time_max_dt_plot) else 'N/A'
         fig.suptitle(f"{symbol.replace('/', '_')} {market} OrderHeatmap v3.41 | {rt.cp.OHLCV_API_INTERVAL} | {title_time_str} JST", color='white', fontsize=rt.cp.TITLE_FONTSIZE, y=0.96)
