@@ -22,6 +22,18 @@ TRADE_AGGREGATION_RESOLUTION = "1min"
 TRADE_PRICE_BUCKET_USD = 10.0
 DATA_FRESHNESS_SEC = 300
 
+# TTL-based pickle cache paths for expensive JSONL re-parsing.
+_CACHE_DIR = Path(__file__).resolve().parents[3] / "runtime" / "cache"
+# CACHE_TTL_SEC must be short enough that stale data is acceptable in the
+# 15-min loop; 60s means at most one outdated frame per cycle.
+_CACHE_TTL_SEC = 60
+
+
+def _cache_key(base: str, hours: int) -> str:
+    """Return a cache filename that includes the query window so different
+    ``hours`` values never alias each other."""
+    return f"{base}_h{hours}.pkl"
+
 
 def check_data_freshness(
     df_index: pd.Index, label: str, max_age_sec: int = DATA_FRESHNESS_SEC
@@ -184,9 +196,47 @@ def _dict_to_float_dict(v: Any) -> dict[float, float]:
     return out
 
 
+def _load_data_cache(cache_path: Path, max_age_sec: int = 60, source_path: Path | None = None) -> pd.DataFrame | None:
+    """Return cached DataFrame if cache exists and mtime is within max_age_sec.
+
+    If *source_path* is given, the cache is also invalidated when the source
+    file is *newer* than the cache (file replaced / rotated).
+    """
+    if not cache_path.exists():
+        return None
+    try:
+        if time.time() - cache_path.stat().st_mtime > max_age_sec:
+            return None
+        if source_path is not None and source_path.exists():
+            if source_path.stat().st_mtime > cache_path.stat().st_mtime:
+                return None
+        df = pd.read_pickle(cache_path)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            return df
+    except Exception as exc:
+        print(f"WARN data._load_data_cache path={cache_path} error={exc}")
+    return None
+
+
+def _save_data_cache(cache_path: Path, df: pd.DataFrame) -> None:
+    """Save DataFrame to pickle at cache_path (parent dirs created if needed)."""
+    if df is None or df.empty:
+        return
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_pickle(cache_path)
+    except Exception as exc:
+        print(f"WARN data._save_data_cache path={cache_path} error={exc}")
+
+
 def load_book_data_with_stats_ws(market: str, hours: int, inputs: dict[str, Path]) -> pd.DataFrame:
     if market != "Futures":
         return pd.DataFrame()
+
+    book_cache = _CACHE_DIR / _cache_key("book_data", hours)
+    cached = _load_data_cache(book_cache, source_path=inputs.get("book_bucket_jsonl") or inputs.get("book_jsonl"))
+    if cached is not None:
+        return cached
 
     book_jsonl = inputs["book_jsonl"]
     book_raw_jsonl = inputs["book_raw_jsonl"]
@@ -236,6 +286,7 @@ def load_book_data_with_stats_ws(market: str, hours: int, inputs: dict[str, Path
     out[["bids_json", "asks_json"]] = out.apply(sanitize_book_levels, axis=1)
     out = out[~out.index.duplicated(keep="last")].sort_index()
     check_data_freshness(out.index, "book", DATA_FRESHNESS_SEC)
+    _save_data_cache(book_cache, out)
     return out
 
 
@@ -262,13 +313,23 @@ def load_aggregated_trade_data_ws(market: str, hours: int, inputs: dict[str, Pat
     if market != "Futures":
         return pd.DataFrame()
 
-    start_ts = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=hours) if hours and hours > 0 else None
     compact_path = inputs.get("trade_compact_jsonl")
+    if compact_path and compact_path.exists():
+        agg_cache = _CACHE_DIR / _cache_key("agg_compact_trade", hours)
+        cached = _load_data_cache(agg_cache, source_path=compact_path)
+    else:
+        agg_cache = _CACHE_DIR / _cache_key("agg_trade", hours)
+        cached = _load_data_cache(agg_cache, source_path=inputs.get("trade_jsonl"))
+    if cached is not None:
+        return cached
+
+    start_ts = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=hours) if hours and hours > 0 else None
     if compact_path and compact_path.exists():
         rows = read_jsonl_recent_until(compact_path, start_ts, TRADE_RECENT_CHUNK_BYTES, TRADE_RECENT_MAX_BYTES)
         compact_df = _aggregate_compact_trades(rows, hours)
         if not compact_df.empty:
             check_data_freshness(compact_df.index, "agg", DATA_FRESHNESS_SEC)
+            _save_data_cache(agg_cache, compact_df)
             return compact_df
 
     rows = read_jsonl_recent_until(inputs["trade_jsonl"], start_ts, TRADE_RECENT_CHUNK_BYTES, TRADE_RECENT_MAX_BYTES)
@@ -277,6 +338,7 @@ def load_aggregated_trade_data_ws(market: str, hours: int, inputs: dict[str, Pat
     result = _aggregate_raw_trades(rows, hours)
     if not result.empty:
         check_data_freshness(result.index, "agg", DATA_FRESHNESS_SEC)
+        _save_data_cache(agg_cache, result)
     return result
 
 
