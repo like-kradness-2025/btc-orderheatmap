@@ -426,7 +426,7 @@ def draw_orderbook_bar_layer(ax_ob_bars, book_df: pd.DataFrame, price_min: float
     ax_ob_bars.set_ylim(price_min, price_max)
     ax_ob_bars.yaxis.tick_right()
     ax_ob_bars.yaxis.set_label_position('right')
-    ax_ob_bars.yaxis.set_major_locator(mticker.MultipleLocator(200))
+    ax_ob_bars.yaxis.set_major_locator(mticker.MultipleLocator(500))
     ax_ob_bars.tick_params(axis='y', colors='white', labelsize=cp_mod.TICK_LABEL_FONTSIZE)
     ax_ob_bars.grid(True, axis='y', linestyle=':', linewidth=0.5, color='gray', alpha=0.18, zorder=0)
 

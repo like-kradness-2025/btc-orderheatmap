@@ -106,7 +106,7 @@ def render_layered_chart(book_df: pd.DataFrame, aggregated_trade_df: pd.DataFram
         ax_main_price.set_ylim(price_min, price_max)
         ax_main_price.yaxis.tick_right()
         ax_main_price.yaxis.set_label_position('right')
-        ax_main_price.yaxis.set_major_locator(mticker.MultipleLocator(200))
+        ax_main_price.yaxis.set_major_locator(mticker.MultipleLocator(500))
         ax_main_price.tick_params(axis='y', colors='white', labelsize=rt.cp.TICK_LABEL_FONTSIZE, labelright=False)
         ax_main_price.yaxis.set_major_formatter(rt.price_formatter)
         ax_main_price.set_xlim(mdates.date2num(time_min_dt_plot), mdates.date2num(time_max_dt_plot))
